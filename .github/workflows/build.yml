@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -33,23 +36,18 @@ jobs:
         Copy-Item "PackageContents.xml" "ANGImpianti.bundle/"
         Write-Host "Bundle creato!"
 
-    - name: Installa Inno Setup
-      run: choco install innosetup --yes --no-progress
-      shell: pwsh
-
-    - name: Crea Installer
+    - name: Crea ZIP installabile
       shell: pwsh
       run: |
-        New-Item -Force -ItemType Directory "installer"
-        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
-        Write-Host "Installer creato!"
+        New-Item -Force -ItemType Directory "release"
+        Compress-Archive -Path "ANGImpianti.bundle" -DestinationPath "release/ANGImpianti.zip"
+        Write-Host "ZIP creato!"
 
-    - name: Upload Installer
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ANGImpianti-Setup
-        path: installer/ANGImpianti_Setup.exe
-        if-no-files-found: warn
+        name: ANGImpianti-Bundle
+        path: release/ANGImpianti.zip
 
     - name: Crea Release
       uses: softprops/action-gh-release@v2
@@ -57,11 +55,14 @@ jobs:
         tag_name: v1.0.${{ github.run_number }}
         name: "ANG-Impianti AI v1.0.${{ github.run_number }}"
         body: |
-          ## ANG-Impianti AI
-          1. Scarica ANGImpianti_Setup.exe
-          2. Chiudi AutoCAD
-          3. Doppio click e installa
-          4. Apri AutoCAD
-        files: installer/ANGImpianti_Setup.exe
+          ## ANG-Impianti AI - Installazione
+
+          ### Come installare:
+          1. Scarica `ANGImpianti.zip`
+          2. Decomprimi il file
+          3. Copia la cartella `ANGImpianti.bundle` in:
+             `C:\ProgramData\Autodesk\ApplicationPlugins\`
+          4. Apri AutoCAD — il plugin si carica automaticamente!
+        files: release/ANGImpianti.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
