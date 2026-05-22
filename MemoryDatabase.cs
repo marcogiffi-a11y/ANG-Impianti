@@ -75,13 +75,13 @@ namespace ImplantiAI
                 var memPath = Path.Combine(_dataPath, "memory.json");
                 if (File.Exists(memPath))
                 {
-                    var data = JsonConvert.DeserializeObject<dynamic>(
+                    var data = Newtonsoft.Json.Linq.JObject.Parse(
                         File.ReadAllText(memPath));
-                    if (data?["ApiKey"] != null)
-                        _apiKey = data["ApiKey"].ToString();
-                    if (data?["Projects"] != null)
+                    if (data["ApiKey"] != null)
+                        _apiKey = data["ApiKey"]!.ToString();
+                    if (data["Projects"] != null)
                         _projects = JsonConvert.DeserializeObject<Dictionary<string, ProjectData>>(
-                            data["Projects"].ToString()) ?? new();
+                            data["Projects"]!.ToString()) ?? new();
                 }
             }
             catch (Exception ex) { Logger.Log($"Load error: {ex.Message}"); }
