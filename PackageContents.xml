@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  Version="1.0"
+  ProductCode="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+  Name="ANG-Impianti AI"
+  Description="Assistente AI per progettazione impianti elettrici"
+  Author="Studio Athena">
+
+  <CompanyDetails Name="Studio Athena" />
+
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD"
+      SeriesMin="R25.0" SeriesMax="R25.9" />
+    <ComponentEntry AppName="ANGImpianti"
+      ModuleName="./Contents/2025/ImplantiAI.dll"
+      LoadOnAutoCADStartup="True" />
+  </Components>
+
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD"
+      SeriesMin="R26.0" SeriesMax="R26.9" />
+    <ComponentEntry AppName="ANGImpianti"
+      ModuleName="./Contents/2026/ImplantiAI.dll"
+      LoadOnAutoCADStartup="True" />
+  </Components>
+
+</ApplicationPackage>
