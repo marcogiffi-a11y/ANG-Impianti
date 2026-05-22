@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -50,41 +51,46 @@ namespace ImplantiAI
         {
             try
             {
-                var data = new { ApiKey = _apiKey, Projects = _projects };
+                var obj = new JObject
+                {
+                    ["ApiKey"] = _apiKey,
+                    ["Projects"] = JToken.FromObject(_projects)
+                };
                 File.WriteAllText(
                     Path.Combine(_dataPath, "memory.json"),
-                    JsonConvert.SerializeObject(data, Formatting.Indented));
+                    obj.ToString(Formatting.Indented));
             }
-            catch (Exception ex) { Logger.Log($"Save error: {ex.Message}"); }
+            catch (System.Exception ex) { Logger.Log("Save error: " + ex.Message); }
         }
 
         private void Load()
         {
             try
             {
-                // Load API key
+                // Carica API key
                 var configPath = Path.Combine(_dataPath, "config.json");
                 if (File.Exists(configPath))
                 {
-                    var cfg = JsonConvert.DeserializeObject<dynamic>(
-                        File.ReadAllText(configPath));
-                    _apiKey = cfg?["api_key"]?.ToString() ?? "";
+                    var cfg = JObject.Parse(File.ReadAllText(configPath));
+                    _apiKey = cfg["api_key"]?.ToString() ?? "";
                 }
 
-                // Load projects
+                // Carica memoria
                 var memPath = Path.Combine(_dataPath, "memory.json");
                 if (File.Exists(memPath))
                 {
-                    var data = Newtonsoft.Json.Linq.JObject.Parse(
-                        File.ReadAllText(memPath));
+                    var data = JObject.Parse(File.ReadAllText(memPath));
                     if (data["ApiKey"] != null)
                         _apiKey = data["ApiKey"]!.ToString();
                     if (data["Projects"] != null)
-                        _projects = JsonConvert.DeserializeObject<Dictionary<string, ProjectData>>(
-                            data["Projects"]!.ToString()) ?? new();
+                    {
+                        var p = JsonConvert.DeserializeObject<Dictionary<string, ProjectData>>(
+                            data["Projects"]!.ToString());
+                        if (p != null) _projects = p;
+                    }
                 }
             }
-            catch (Exception ex) { Logger.Log($"Load error: {ex.Message}"); }
+            catch (System.Exception ex) { Logger.Log("Load error: " + ex.Message); }
         }
     }
 }
