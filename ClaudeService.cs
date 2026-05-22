@@ -16,10 +16,58 @@ namespace ImplantiAI
         private readonly string _apiKey;
         private readonly HttpClient _client;
 
-        private const string SYSTEM = @"Sei un assistente esperto in impianti elettrici integrato in AutoCAD.
-Aiuti il progettista a tracciare circuiti, calcolare cavi e interruttori secondo CEI 64-8.
-Rispondi in italiano, in modo chiaro e conciso.
-Normativa: Circuiti luce 1.5mm² int.10A, Prese 2.5mm² int.16A, Cucina/bagno circuiti dedicati.";
+        private const string SYSTEM_BASE = @"Sei un assistente esperto in impianti elettrici integrato in AutoCAD.
+Aiuti il progettista a tracciare circuiti secondo CEI 64-8.
+Rispondi sempre in italiano.
+
+NORMATIVA CEI 64-8:
+- Circuiti luce: cavo 1.5mm², interruttore 10A curva C
+- Circuiti prese: cavo 2.5mm², interruttore 16A curva C
+- Cucina: circuito dedicato 20A
+- Bagno: circuito dedicato con diff. 30mA
+- Caduta tensione max 4%
+
+SIMBOLI DISPONIBILI (usa questi nomi esatti):
+- luce_soffitto: corpo illuminante a soffitto
+- luce_parete: corpo illuminante a parete
+- emergenza: lampada di emergenza
+- interruttore_1p: interruttore 1P 16A
+- interruttore_2p: interruttore bipolare 16A
+- pulsante: pulsante 1P NO
+- pulsante_doppio: doppio pulsante
+- presa_univ: presa universale
+- presa_cmd: presa comandata
+- presa_tv: presa TV
+- presa_sat: presa SAT
+- scatola_fem: scatola derivazione FEM
+- scatola_luce: scatola derivazione luci
+- videocit_int: videocitofono interno
+- videocit_est: videocitofono esterno
+- suoneria: suoneria
+- ventilatore: ventilatore da parete
+- riv_gas: rivelatore GAS
+- riv_acqua: rivelatore acqua
+- cronoterm: cronotermostato
+
+LAYER STANDARD:
+- Impianto Elettrico Illuminazione (colore giallo)
+- Impianto Elettrico Fem (colore rosso)
+- Impianto Elettrico Dati (colore blu)
+- Impianto Elettrico Allarme (colore arancio)
+
+QUANDO L'UTENTE CHIEDE DI DISEGNARE rispondo con JSON:
+{
+  ""text"": ""Risposta testuale all'utente"",
+  ""commands"": [
+    {""action"":""symbol"", ""symbol_type"":""luce_soffitto"", ""x"":1000, ""y"":2000, ""layer"":""Impianto Elettrico Illuminazione"", ""label"":""PL1""},
+    {""action"":""route"", ""x"":1000, ""y"":2000, ""x2"":2000, ""y2"":2000, ""layer"":""Impianto Elettrico Illuminazione"", ""cable_section"":""1.5"", ""label"":""C1""},
+    {""action"":""label"", ""x"":1500, ""y"":2100, ""label"":""3x1.5mm²"", ""layer"":""Impianto Elettrico Illuminazione""}
+  ],
+  ""learn_rule"": ""regola da ricordare per progetti futuri (opzionale)""
+}
+
+Se NON devo disegnare, rispondo solo con testo normale senza JSON.
+Usa le coordinate reali dei vani dal contesto disegno.";
 
         public ClaudeService()
         {
@@ -31,10 +79,22 @@ Normativa: Circuiti luce 1.5mm² int.10A, Prese 2.5mm² int.16A, Cucina/bagno ci
         }
 
         public async Task<ClaudeResponse?> Chat(
-            List<ChatMessage> history, string context)
+            List<ChatMessage> history, string drawingContext)
         {
             if (string.IsNullOrEmpty(_apiKey))
-                throw new Exception("API Key non configurata!\nConfigura in: %APPDATA%\\ANGImpianti\\config.json");
+                throw new System.Exception(
+                    "API Key non configurata!\n" +
+                    "Configura in: %APPDATA%\\ANGImpianti\\config.json");
+
+            var rules = MemoryDatabase.Instance.GetRulesForPrompt();
+            var projects = MemoryDatabase.Instance.GetProjectsSummary();
+
+            var systemPrompt = SYSTEM_BASE;
+            if (!string.IsNullOrEmpty(rules))
+                systemPrompt += "\n\n" + rules;
+            if (!string.IsNullOrEmpty(projects))
+                systemPrompt += "\n\n" + projects;
+            systemPrompt += "\n\nCONTESTO DISEGNO CORRENTE:\n" + drawingContext;
 
             var messages = new List<object>();
             foreach (var msg in history)
@@ -43,8 +103,8 @@ Normativa: Circuiti luce 1.5mm² int.10A, Prese 2.5mm² int.16A, Cucina/bagno ci
             var body = new
             {
                 model = MODEL,
-                max_tokens = 1000,
-                system = SYSTEM + $"\n\nDISEGNO CORRENTE:\n{context}",
+                max_tokens = 2000,
+                system = systemPrompt,
                 messages
             };
 
@@ -58,18 +118,72 @@ Normativa: Circuiti luce 1.5mm² int.10A, Prese 2.5mm² int.16A, Cucina/bagno ci
 
                 if (!resp.IsSuccessStatusCode)
                 {
-                    Logger.Log($"API Error: {respStr}");
-                    throw new Exception($"Errore API: {resp.StatusCode}");
+                    Logger.Log("API Error: " + respStr);
+                    throw new System.Exception("Errore API: " + resp.StatusCode);
                 }
 
                 var json = JObject.Parse(respStr);
                 var text = json["content"]?[0]?["text"]?.ToString() ?? "";
-                return new ClaudeResponse { Text = text };
+                return ParseResponse(text);
             }
             catch (TaskCanceledException)
             {
-                throw new Exception("Timeout. Riprova.");
+                throw new System.Exception("Timeout. Riprova.");
             }
+        }
+
+        private ClaudeResponse ParseResponse(string text)
+        {
+            // Prova a parsare come JSON con comandi
+            try
+            {
+                var clean = CleanJson(text);
+                if (clean.StartsWith("{"))
+                {
+                    var json = JObject.Parse(clean);
+                    var response = new ClaudeResponse
+                    {
+                        Text = json["text"]?.ToString() ?? text,
+                        LearnRule = json["learn_rule"]?.ToString()
+                    };
+
+                    var cmds = json["commands"] as JArray;
+                    if (cmds != null && cmds.Count > 0)
+                    {
+                        response.Commands = new List<DrawCommand>();
+                        foreach (var cmd in cmds)
+                        {
+                            response.Commands.Add(new DrawCommand
+                            {
+                                Action = cmd["action"]?.ToString() ?? "",
+                                SymbolType = cmd["symbol_type"]?.ToString() ?? "",
+                                Layer = cmd["layer"]?.ToString() ?? "Impianto Elettrico",
+                                X = cmd["x"]?.Value<double>() ?? 0,
+                                Y = cmd["y"]?.Value<double>() ?? 0,
+                                X2 = cmd["x2"]?.Value<double>() ?? 0,
+                                Y2 = cmd["y2"]?.Value<double>() ?? 0,
+                                Label = cmd["label"]?.ToString() ?? "",
+                                CableSection = cmd["cable_section"]?.ToString() ?? "",
+                                RoomName = cmd["room_name"]?.ToString() ?? ""
+                            });
+                        }
+                    }
+                    return response;
+                }
+            }
+            catch { }
+
+            return new ClaudeResponse { Text = text };
+        }
+
+        private string CleanJson(string text)
+        {
+            var cleaned = Regex.Replace(text.Trim(), @"^```(?:json)?\s*", "",
+                RegexOptions.Multiline);
+            cleaned = Regex.Replace(cleaned, @"\s*```$", "", RegexOptions.Multiline);
+            int start = cleaned.IndexOf('{');
+            if (start > 0) cleaned = cleaned.Substring(start);
+            return cleaned.Trim();
         }
     }
 }
