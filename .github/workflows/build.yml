@@ -31,27 +31,28 @@ jobs:
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2025/" -ErrorAction SilentlyContinue
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2026/" -ErrorAction SilentlyContinue
         Copy-Item "PackageContents.xml" "ANGImpianti.bundle/"
+        Write-Host "Bundle creato!"
 
     - name: Installa Inno Setup
+      run: choco install innosetup --yes --no-progress
       shell: pwsh
-      run: |
-        Invoke-WebRequest "https://jrsoftware.org/download.php/is.exe" -OutFile "is.exe"
-        Start-Process "is.exe" -Args "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
 
     - name: Crea Installer
       shell: pwsh
       run: |
         New-Item -Force -ItemType Directory "installer"
         & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "setup.iss"
+        Write-Host "Installer creato!"
 
-    - name: Upload Artifact
+    - name: Upload Installer
       uses: actions/upload-artifact@v4
       with:
         name: ANGImpianti-Setup
         path: installer/ANGImpianti_Setup.exe
+        if-no-files-found: warn
 
     - name: Crea Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v1.0.${{ github.run_number }}
         name: "ANG-Impianti AI v1.0.${{ github.run_number }}"
