@@ -67,12 +67,29 @@ namespace ImplantiAI
         {
             try
             {
-                // Carica API key
-                var configPath = Path.Combine(_dataPath, "config.json");
-                if (File.Exists(configPath))
+                // Carica API key - cerca in ANGImpianti e ImplantiPlugin
+                var possiblePaths = new[]
                 {
-                    var cfg = JObject.Parse(File.ReadAllText(configPath));
-                    _apiKey = cfg["api_key"]?.ToString() ?? "";
+                    Path.Combine(_dataPath, "config.json"),
+                    Path.Combine(Environment.GetFolderPath(
+                        Environment.SpecialFolder.ApplicationData),
+                        "ImplantiPlugin", "config.json")
+                };
+
+                foreach (var configPath in possiblePaths)
+                {
+                    Logger.Log("Cerco config in: " + configPath);
+                    if (File.Exists(configPath))
+                    {
+                        var cfg = JObject.Parse(File.ReadAllText(configPath));
+                        var key = cfg["api_key"]?.ToString() ?? "";
+                        if (!string.IsNullOrEmpty(key))
+                        {
+                            _apiKey = key;
+                            Logger.Log("API Key trovata in: " + configPath);
+                            break;
+                        }
+                    }
                 }
 
                 // Carica memoria
