@@ -23,7 +23,6 @@ namespace ImplantiAI
             {
                 MemoryDatabase.Instance.Initialize();
 
-                // Crea palette chat
                 Palette = new PaletteSet("ANG-Impianti AI",
                     new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
                 Chat = new ChatPanel();
@@ -42,7 +41,6 @@ namespace ImplantiAI
                 Palette.Dock = DockSides.Right;
                 Palette.Visible = true;
 
-                // Crea ribbon
                 Autodesk.AutoCAD.ApplicationServices.Application.Idle += OnIdle;
 
                 doc.Editor.WriteMessage(
@@ -53,14 +51,15 @@ namespace ImplantiAI
             }
             catch (System.Exception ex)
             {
-                doc?.Editor.WriteMessage($"\n✗ Errore avvio: {ex.Message}\n");
+                doc?.Editor.WriteMessage("\n✗ Errore avvio: " + ex.Message + "\n");
             }
         }
 
         private void OnIdle(object? sender, EventArgs e)
         {
             Autodesk.AutoCAD.ApplicationServices.Application.Idle -= OnIdle;
-            try { RibbonManager.CreateRibbon(); } catch { }
+            try { RibbonManager.CreateRibbon(); }
+            catch (System.Exception ex) { Logger.Log("Ribbon error: " + ex.Message); }
         }
 
         public void Terminate() => MemoryDatabase.Instance.Save();
