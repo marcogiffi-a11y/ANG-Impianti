@@ -51,7 +51,7 @@ namespace ImplantiAI
                     "║  Ribbon e Chat pronti!   ║\n" +
                     "╚══════════════════════════╝\n");
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 doc?.Editor.WriteMessage($"\n✗ Errore avvio: {ex.Message}\n");
             }
