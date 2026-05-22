@@ -91,7 +91,7 @@ namespace ImplantiAI
                 }
                 ed.WriteMessage($"\n✓ Vano '{nome}' disegnato!\n");
             }
-            catch (Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
         }
 
         [CommandMethod("RICONOSCI_VANI", CommandFlags.Modal)]
@@ -116,7 +116,7 @@ namespace ImplantiAI
                 foreach (var r in rooms)
                     ed.WriteMessage($"  • {r.Name} {r.Area:F0}m²\n");
             }
-            catch (Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
         }
 
         // ── SIMBOLI ──────────────────────────────────────────
