@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
 using System.Collections.Generic;
+using AcEx = Autodesk.AutoCAD.Runtime.Exception;
 
 namespace ImplantiAI
 {
@@ -42,7 +43,7 @@ namespace ImplantiAI
                 var pts = new List<Point3d>();
                 while (true)
                 {
-                    var ppo = new PromptPointOptions(pts.Count == 0 ? "\nPrimo punto: " : "\nPunto successivo (INVIO per chiudere): ");
+                    var ppo = new PromptPointOptions(pts.Count == 0 ? "\nPrimo punto: " : "\nPunto successivo: ");
                     ppo.AllowNone = pts.Count >= 3;
                     var ppr = ed.GetPoint(ppo);
                     if (ppr.Status == PromptStatus.None && pts.Count >= 3) break;
@@ -53,7 +54,7 @@ namespace ImplantiAI
                 using (doc.LockDocument())
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
-                    var layer = $"VANO_{tipo.ToUpper()}";
+                    var layer = "VANO_" + tipo.ToUpper();
                     EnsureLayer(tr, db, layer, TipoColore(tipo));
                     var btr = GetMS(tr, db);
 
@@ -72,7 +73,7 @@ namespace ImplantiAI
 
                     var txt = new MText
                     {
-                        Contents = $"{nome}\\P{area:F1} m²",
+                        Contents = nome + "\\P" + area.ToString("F1") + " m\u00b2",
                         Location = new Point3d(cx, cy, 0),
                         TextHeight = 200,
                         Attachment = AttachmentPoint.MiddleCenter,
@@ -89,9 +90,9 @@ namespace ImplantiAI
                     });
                     MemoryDatabase.Instance.Save();
                 }
-                ed.WriteMessage($"\n✓ Vano '{nome}' disegnato!\n");
+                ed.WriteMessage("\n✓ Vano '" + nome + "' disegnato!\n");
             }
-            catch (System.Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage("\n✗ " + ex.Message + "\n"); }
         }
 
         [CommandMethod("RICONOSCI_VANI", CommandFlags.Modal)]
@@ -112,14 +113,13 @@ namespace ImplantiAI
                 var proj = MemoryDatabase.Instance.GetCurrentProject(db.Filename);
                 proj.Rooms = rooms;
                 MemoryDatabase.Instance.Save();
-                ed.WriteMessage($"✓ Trovati {rooms.Count} vani:\n");
+                ed.WriteMessage("✓ Trovati " + rooms.Count + " vani:\n");
                 foreach (var r in rooms)
-                    ed.WriteMessage($"  • {r.Name} {r.Area:F0}m²\n");
+                    ed.WriteMessage("  • " + r.Name + " " + r.Area.ToString("F0") + "m²\n");
             }
-            catch (System.Exception ex) { ed.WriteMessage($"\n✗ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage("\n✗ " + ex.Message + "\n"); }
         }
 
-        // ── SIMBOLI ──────────────────────────────────────────
         [CommandMethod("INS_LUCE_SOFFITTO", CommandFlags.Modal)]
         public void InsLuceSoffitto() => InsSymbol("Corpo illuminante soffitto", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_LUCE_PARETE", CommandFlags.Modal)]
@@ -127,11 +127,11 @@ namespace ImplantiAI
         [CommandMethod("INS_LUCE_EMERGENZA", CommandFlags.Modal)]
         public void InsLuceEmergenza() => InsSymbol("Lampada emergenza", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_INT_1P", CommandFlags.Modal)]
-        public void InsInt1P() => InsSymbol("Interruttore 1P 16A", "Impianto Elettrico Illuminazione", 2);
+        public void InsInt1P() => InsSymbol("Interruttore 1P", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_INT_2P", CommandFlags.Modal)]
-        public void InsInt2P() => InsSymbol("Interruttore Bipolare 16A", "Impianto Elettrico Illuminazione", 2);
+        public void InsInt2P() => InsSymbol("Interruttore 2P", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_PULSANTE", CommandFlags.Modal)]
-        public void InsPulsante() => InsSymbol("Pulsante 1P NO", "Impianto Elettrico Illuminazione", 2);
+        public void InsPulsante() => InsSymbol("Pulsante", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_DOPPIO_PULSANTE", CommandFlags.Modal)]
         public void InsDoppioPulsante() => InsSymbol("Doppio pulsante", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_PRESA_UNIV", CommandFlags.Modal)]
@@ -147,9 +147,9 @@ namespace ImplantiAI
         [CommandMethod("INS_SCATOLA_LUCE", CommandFlags.Modal)]
         public void InsScatolaLuce() => InsSymbol("Scatola luce", "Impianto Elettrico Illuminazione", 2);
         [CommandMethod("INS_VIDEOCIT_INT", CommandFlags.Modal)]
-        public void InsVideocitInt() => InsSymbol("Videocitofono interno", "Impianto Elettrico Dati", 5);
+        public void InsVideocitInt() => InsSymbol("Videocitofono int.", "Impianto Elettrico Dati", 5);
         [CommandMethod("INS_VIDEOCIT_EST", CommandFlags.Modal)]
-        public void InsVideocitEst() => InsSymbol("Videocitofono esterno", "Impianto Elettrico Dati", 5);
+        public void InsVideocitEst() => InsSymbol("Videocitofono est.", "Impianto Elettrico Dati", 5);
         [CommandMethod("INS_SUONERIA", CommandFlags.Modal)]
         public void InsSuoneria() => InsSymbol("Suoneria", "Impianto Elettrico Dati", 5);
         [CommandMethod("INS_VENTILATORE", CommandFlags.Modal)]
@@ -170,30 +170,29 @@ namespace ImplantiAI
             ed.WriteMessage("\n╔══════════════════════════════╗\n");
             ed.WriteMessage("║      DISTINTA MATERIALI      ║\n");
             ed.WriteMessage("╠══════════════════════════════╣\n");
-            if (proj.Circuits?.Count > 0)
+            if (proj.Circuits != null && proj.Circuits.Count > 0)
             {
                 double tot = 0;
                 foreach (var c in proj.Circuits)
                 {
-                    ed.WriteMessage($"║ {c.CircuitNumber} {c.Type}: {c.CableSection}mm² {c.CableLength:F1}m\n");
+                    ed.WriteMessage("║ " + c.CircuitNumber + " " + c.Type + ": " + c.CableSection + "mm² " + c.CableLength.ToString("F1") + "m\n");
                     tot += c.CableLength;
                 }
-                ed.WriteMessage($"║ TOTALE CAVO: {tot:F1}m\n");
+                ed.WriteMessage("║ TOTALE: " + tot.ToString("F1") + "m\n");
             }
             else ed.WriteMessage("║ Nessun circuito disegnato\n");
             ed.WriteMessage("╚══════════════════════════════╝\n");
         }
 
-        // ── HELPERS ──────────────────────────────────────────
         private void InsSymbol(string name, string layer, short color)
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var db = doc.Database;
             var ed = doc.Editor;
-            ed.WriteMessage($"\nInserisci '{name}' (INVIO per terminare)\n");
+            ed.WriteMessage("\nInserisci '" + name + "' (INVIO per terminare)\n");
             while (true)
             {
-                var ppo = new PromptPointOptions($"\nPunto (INVIO=fine): ") { AllowNone = true };
+                var ppo = new PromptPointOptions("\nPunto (INVIO=fine): ") { AllowNone = true };
                 var ppr = ed.GetPoint(ppo);
                 if (ppr.Status != PromptStatus.OK) break;
                 using (doc.LockDocument())
@@ -207,8 +206,7 @@ namespace ImplantiAI
             }
         }
 
-        private void DrawSymbol(Transaction tr, BlockTableRecord btr,
-            string name, Point3d pos, string layer)
+        private void DrawSymbol(Transaction tr, BlockTableRecord btr, string name, Point3d pos, string layer)
         {
             var n = name.ToLower();
             double r = 150;
@@ -237,22 +235,19 @@ namespace ImplantiAI
             {
                 AddCircle(tr, btr, pos, 100, layer);
             }
-            AddText(tr, btr, new Point3d(pos.X, pos.Y + r + 80, 0),
-                name.Length > 12 ? name.Substring(0, 12) : name, 80, layer);
+            string lbl = name.Length > 12 ? name.Substring(0, 12) : name;
+            AddText(tr, btr, new Point3d(pos.X, pos.Y + r + 80, 0), lbl, 80, layer);
         }
 
         private List<RoomData> DetectRoomsFromTexts(Database db)
         {
             var rooms = new List<RoomData>();
-            var keywords = new[] { "camera", "bagno", "cucina", "soggiorno",
-                "corridoio", "disimpegno", "ingresso", "studio", "wc", "rip_", "cam_", "bag_" };
-
+            var keywords = new[] { "camera", "bagno", "cucina", "soggiorno", "corridoio", "disimpegno", "ingresso", "wc", "rip_", "cam_", "bag_" };
             using (var tr = db.TransactionManager.StartOpenCloseTransaction())
             {
                 var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
                 var btr = tr.GetObject(bt![BlockTableRecord.ModelSpace], OpenMode.ForRead) as BlockTableRecord;
                 if (btr == null) return rooms;
-
                 foreach (var id in btr)
                 {
                     string text = ""; double x = 0, y = 0;
@@ -260,19 +255,11 @@ namespace ImplantiAI
                     if (e is MText mt) { text = mt.Contents.Replace("\\A1;", ""); x = mt.Location.X; y = mt.Location.Y; }
                     else if (e is DBText dt) { text = dt.TextString; x = dt.Position.X; y = dt.Position.Y; }
                     if (string.IsNullOrEmpty(text)) continue;
-
                     bool isRoom = false;
                     foreach (var kw in keywords)
                         if (text.ToLower().Contains(kw)) { isRoom = true; break; }
-
                     if (isRoom)
-                        rooms.Add(new RoomData
-                        {
-                            Name = text.Trim(),
-                            RoomType = GetRoomType(text),
-                            Area = GetEstimatedArea(text),
-                            CenterX = x, CenterY = y
-                        });
+                        rooms.Add(new RoomData { Name = text.Trim(), RoomType = GetRoomType(text), Area = GetEstimatedArea(text), CenterX = x, CenterY = y });
                 }
                 tr.Commit();
             }
@@ -303,56 +290,49 @@ namespace ImplantiAI
         private BlockTableRecord GetMS(Transaction tr, Database db)
         {
             var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
-            return tr.GetObject(bt![BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord
-                   ?? throw new Exception("ModelSpace non trovato");
+            return (tr.GetObject(bt![BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord)!;
         }
 
         private void EnsureLayer(Transaction tr, Database db, string name, short color)
         {
             var lt = tr.GetObject(db.LayerTableId, OpenMode.ForWrite) as LayerTable;
             if (lt == null || lt.Has(name)) return;
-            var layer = new LayerTableRecord
-            {
-                Name = name,
-                Color = Color.FromColorIndex(ColorMethod.ByAci, color)
-            };
+            var layer = new LayerTableRecord { Name = name, Color = Color.FromColorIndex(ColorMethod.ByAci, color) };
             lt.Add(layer); tr.AddNewlyCreatedDBObject(layer, true);
         }
 
-        private short TipoColore(string tipo) => tipo.ToLower() switch
+        private short TipoColore(string tipo)
         {
-            "bagno" => 4, "cucina" => 1, "soggiorno" => 2,
-            "camera" => 3, "corridoio" => 5, _ => 7
-        };
+            switch (tipo.ToLower())
+            {
+                case "bagno": return 4;
+                case "cucina": return 1;
+                case "soggiorno": return 2;
+                case "camera": return 3;
+                case "corridoio": return 5;
+                default: return 7;
+            }
+        }
 
-        private void AddCircle(Transaction tr, BlockTableRecord btr,
-            Point3d c, double r, string layer)
+        private void AddCircle(Transaction tr, BlockTableRecord btr, Point3d c, double r, string layer)
         {
             var circle = new Circle(c, Vector3d.ZAxis, r) { Layer = layer };
             btr.AppendEntity(circle); tr.AddNewlyCreatedDBObject(circle, true);
         }
 
-        private void AddLine(Transaction tr, BlockTableRecord btr,
-            Point3d p1, Point3d p2, string layer)
+        private void AddLine(Transaction tr, BlockTableRecord btr, Point3d p1, Point3d p2, string layer)
         {
             var line = new Line(p1, p2) { Layer = layer };
             btr.AppendEntity(line); tr.AddNewlyCreatedDBObject(line, true);
         }
 
-        private void AddText(Transaction tr, BlockTableRecord btr,
-            Point3d pos, string text, double h, string layer)
+        private void AddText(Transaction tr, BlockTableRecord btr, Point3d pos, string text, double h, string layer)
         {
-            var t = new DBText
-            {
-                TextString = text, Position = pos, Height = h,
-                HorizontalMode = TextHorizontalMode.TextCenter,
-                AlignmentPoint = pos, Layer = layer
-            };
+            var t = new DBText { TextString = text, Position = pos, Height = h, HorizontalMode = TextHorizontalMode.TextCenter, AlignmentPoint = pos, Layer = layer };
             btr.AppendEntity(t); tr.AddNewlyCreatedDBObject(t, true);
         }
 
-        private void DrawRect(Transaction tr, BlockTableRecord btr,
-            Point3d c, double w, double h, string layer)
+        private void DrawRect(Transaction tr, BlockTableRecord btr, Point3d c, double w, double h, string layer)
         {
             var p = new Polyline();
             p.AddVertexAt(0, new Point2d(c.X - w / 2, c.Y - h / 2), 0, 0, 0);
