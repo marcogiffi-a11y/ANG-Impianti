@@ -1,4 +1,4 @@
-﻿﻿﻿using Autodesk.AutoCAD.DatabaseServices;
+﻿﻿﻿﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -337,12 +337,18 @@ namespace ImplantiAI
 
                 if (project.Rooms.Count > 0)
                 {
-                    sb.AppendLine("Vani (" + project.Rooms.Count + "):");
+                    sb.AppendLine("Vani (" + project.Rooms.Count + ") - coords in METRI:");
                     foreach (var r in project.Rooms)
+                    {
+                        string bbox = (r.Width > 0)
+                            ? " bbox:[X " + r.MinX.ToString("F1") + ".." + r.MaxX.ToString("F1") +
+                              ", Y " + r.MinY.ToString("F1") + ".." + r.MaxY.ToString("F1") + "]"
+                            : "";
                         sb.AppendLine("  - " + r.Name + " tipo:" + r.RoomType +
-                            " " + r.Area.ToString("F0") + "m² " +
-                            "centro:[" + r.CenterX.ToString("F0") + "," +
-                            r.CenterY.ToString("F0") + "]");
+                            " " + r.Area.ToString("F1") + "m^2 " +
+                            "centro:[" + r.CenterX.ToString("F1") + "," +
+                            r.CenterY.ToString("F1") + "]" + bbox);
+                    }
                 }
                 else
                 {
