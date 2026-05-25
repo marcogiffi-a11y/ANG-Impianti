@@ -140,27 +140,56 @@ namespace ImplantiAI
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
+                var tempExtract = Path.Combine(Path.GetTempPath(), "ANGImpianti_extract");
 
                 MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
                     "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
+                client.Timeout = TimeSpan.FromMinutes(5);
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
 
-                var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
-                File.WriteAllText(scriptPath,
+                // Robust install script
+                var bundleDest = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
+                var script =
                     "@echo off\r\n" +
-                    "timeout /t 3 /nobreak >nul\r\n" +
-                    "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"\r\n" +
-                    "powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; " +
-                    "[IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip.Replace("\\","\\\\") +
-                    "', 'C:\\\\ProgramData\\\\Autodesk\\\\ApplicationPlugins\\\\')\"\r\n" +
-                    "if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" " +
-                    "ren \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" \"ANGImpianti.bundle\"\r\n" +
+                    "echo ANG-Impianti: avvio installazione...\r\n" +
+                    "timeout /t 4 /nobreak >nul\r\n" +
+                    // Remove old bundle
+                    "if exist \"" + bundleDest + "\" (\r\n" +
+                    "  echo Rimozione versione precedente...\r\n" +
+                    "  rmdir /s /q \"" + bundleDest + "\"\r\n" +
+                    ")\r\n" +
+                    // Remove leftover folder without .bundle
+                    "if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" (\r\n" +
+                    "  rmdir /s /q \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\"\r\n" +
+                    ")\r\n" +
+                    // Clean extract folder
+                    "if exist \"" + tempExtract + "\" rmdir /s /q \"" + tempExtract + "\"\r\n" +
+                    "mkdir \"" + tempExtract + "\"\r\n" +
+                    // Extract zip
+                    "echo Estrazione...\r\n" +
+                    "powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip + "', '" + tempExtract + "')\"\r\n" +
+                    // Find the .bundle folder and move it
+                    "echo Installazione...\r\n" +
+                    "for /d %%i in (\"" + tempExtract + "\\*.bundle\") do (\r\n" +
+                    "  xcopy /e /i /y \"%%i\" \"" + bundleDest + "\"\r\n" +
+                    ")\r\n" +
+                    // Also handle non-.bundle folder name
+                    "for /d %%i in (\"" + tempExtract + "\\ANGImpianti\") do (\r\n" +
+                    "  xcopy /e /i /y \"%%i\" \"" + bundleDest + "\"\r\n" +
+                    ")\r\n" +
+                    // Cleanup
+                    "rmdir /s /q \"" + tempExtract + "\" 2>nul\r\n" +
                     "del \"" + tempZip + "\" 2>nul\r\n" +
-                    "start \"\" \"%PROGRAMFILES%\\Autodesk\\AutoCAD 2025\\acad.exe\"\r\n");
+                    "echo Installazione completata!\r\n" +
+                    // Restart AutoCAD
+                    "start \"" "" "\"\r\n";
+
+                var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
+                File.WriteAllText(scriptPath, script);
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -178,6 +207,7 @@ namespace ImplantiAI
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
 
         public void Terminate() => MemoryDatabase.Instance.Save();
     }
