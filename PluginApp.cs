@@ -35,11 +35,7 @@ namespace ImplantiAI
                 Palette = new PaletteSet("ANG-Impianti AI",
                     new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
                 Chat = new ChatPanel();
-                var host = new ElementHost
-                {
-                    Child = Chat,
-                    Dock = DockStyle.Fill
-                };
+                var host = new ElementHost { Child = Chat, Dock = DockStyle.Fill };
                 Palette.Add("Chat AI", host);
                 Palette.Style = PaletteSetStyles.ShowCloseButton |
                                 PaletteSetStyles.ShowAutoHideButton |
@@ -55,56 +51,70 @@ namespace ImplantiAI
                 doc.Editor.WriteMessage(
                     "\n╔══════════════════════════╗\n" +
                     "║  ANG-Impianti AI v2.1    ║\n" +
-                    "║  Ribbon e Chat pronti!   ║\n" +
+                    "║  Simboli F-05 + Auto-Upd ║\n" +
                     "╚══════════════════════════╝\n");
 
-                Task.Run(() => CheckForUpdatesAsync());
+                // Check for updates in background
+                Task.Run(async () =>
+                {
+                    try { await CheckForUpdatesAsync(doc); }
+                    catch (Exception ex) { Logger.Log("Updater: " + ex.Message); }
+                });
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 doc?.Editor.WriteMessage("\n✗ Errore avvio: " + ex.Message + "\n");
             }
         }
 
-        private async Task CheckForUpdatesAsync()
+        private async Task CheckForUpdatesAsync(
+            Autodesk.AutoCAD.ApplicationServices.Document doc)
         {
             try
             {
+                doc?.Editor.WriteMessage("\nANG: controllo aggiornamenti...\n");
+
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-AutoUpdater");
-                client.Timeout = TimeSpan.FromSeconds(10);
+                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
+                client.Timeout = TimeSpan.FromSeconds(15);
 
                 var json = await client.GetStringAsync(
-                    "https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
+                    $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
 
-                var tagMatch = Regex.Match(json, "\"tag_name\":\\s*\"([^\"]+)\"");
-                if (!tagMatch.Success) return;
+                var tagMatch = Regex.Match(json, "\"tag_name\":\\s*\"v?([^\"]+)\"");
+                if (!tagMatch.Success)
+                {
+                    doc?.Editor.WriteMessage("\nANG: impossibile leggere versione GitHub.\n");
+                    return;
+                }
 
-                var latestTag = tagMatch.Groups[1].Value.TrimStart('v');
-                if (latestTag == CURRENT_VERSION) return;
+                var latest = tagMatch.Groups[1].Value.Trim();
+                doc?.Editor.WriteMessage($"\nANG: v{CURRENT_VERSION} installata, v{latest} su GitHub.\n");
 
-                var urlMatch = Regex.Match(json, "\"browser_download_url\":\\s*\"([^\"]+\\.zip)\"");
+                if (latest == CURRENT_VERSION) return;
+
+                var urlMatch = Regex.Match(json,
+                    "\"browser_download_url\":\\s*\"([^\"]+\\.zip)\"");
                 if (!urlMatch.Success) return;
                 var downloadUrl = urlMatch.Groups[1].Value;
 
-                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
-                {
-                    var result = MessageBox.Show(
-                        "Nuova versione ANG-Impianti disponibile!\n\n" +
-                        "Versione attuale: v" + CURRENT_VERSION + "\n" +
-                        "Nuova versione: v" + latestTag + "\n\n" +
-                        "Aggiornare adesso?",
-                        "ANG-Impianti - Aggiornamento",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Information);
+                // MessageBox.Show è thread-safe in WinForms
+                var result = MessageBox.Show(
+                    $"Nuova versione ANG-Impianti disponibile!\n\n" +
+                    $"Installata: v{CURRENT_VERSION}\n" +
+                    $"Disponibile: v{latest}\n\n" +
+                    "Aggiornare adesso?",
+                    "ANG-Impianti - Aggiornamento",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information);
 
-                    if (result == DialogResult.Yes)
-                        Task.Run(() => DownloadAndInstallAsync(downloadUrl));
-                }));
+                if (result == DialogResult.Yes)
+                    await DownloadAndInstallAsync(downloadUrl);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                Logger.Log("Update check: " + ex.Message);
+                doc?.Editor.WriteMessage($"\nANG: errore controllo update: {ex.Message}\n");
+                Logger.Log("UpdateCheck: " + ex.Message);
             }
         }
 
@@ -114,12 +124,12 @@ namespace ImplantiAI
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
 
-                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
-                    MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
-                        "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+                MessageBox.Show(
+                    "Download in corso...\nAutoCAD si chiuderà al termine.",
+                    "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-AutoUpdater");
+                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
                 var bytes = await client.GetByteArrayAsync(downloadUrl);
                 File.WriteAllBytes(tempZip, bytes);
 
@@ -128,7 +138,8 @@ namespace ImplantiAI
                     "@echo off\r\n" +
                     "timeout /t 3 /nobreak >nul\r\n" +
                     "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"\r\n" +
-                    "powershell -Command \"Expand-Archive -Path '" + tempZip + "' -DestinationPath 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\' -Force\"\r\n" +
+                    "powershell -Command \"Expand-Archive -Path '" + tempZip +
+                    "' -DestinationPath 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\' -Force\"\r\n" +
                     "del \"" + tempZip + "\"\r\n" +
                     "start acad.exe\r\n");
 
@@ -139,15 +150,13 @@ namespace ImplantiAI
                     Verb = "runas"
                 });
 
-                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
-                    Autodesk.AutoCAD.ApplicationServices.Application.Quit()));
+                Autodesk.AutoCAD.ApplicationServices.Application.Quit();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                Logger.Log("Update install: " + ex.Message);
-                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
-                    MessageBox.Show("Errore: " + ex.Message, "Errore aggiornamento",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error)));
+                Logger.Log("Install: " + ex.Message);
+                MessageBox.Show("Errore: " + ex.Message, "Errore aggiornamento",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -155,7 +164,7 @@ namespace ImplantiAI
         {
             Autodesk.AutoCAD.ApplicationServices.Application.Idle -= OnIdle;
             try { RibbonManager.CreateRibbon(); }
-            catch (System.Exception ex) { Logger.Log("Ribbon error: " + ex.Message); }
+            catch (Exception ex) { Logger.Log("Ribbon: " + ex.Message); }
         }
 
         public void Terminate() => MemoryDatabase.Instance.Save();
