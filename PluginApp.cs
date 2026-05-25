@@ -139,11 +139,11 @@ namespace ImplantiAI
         {
             try
             {
-                var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
-                var bundleDest = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
+                // Download su Desktop
+                var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                var tempZip = Path.Combine(desktop, "ANGImpianti_update.zip");
 
-                MessageBox.Show(
-                    "Download in corso...\nAl termine ti verrà chiesto di riavviare AutoCAD.",
+                MessageBox.Show("Download in corso...",
                     "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
@@ -152,34 +152,31 @@ namespace ImplantiAI
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
 
-                // Semplice script: chiudi AutoCAD, installa, mostra messaggio
-                var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
-                var script = new System.Text.StringBuilder();
-                script.AppendLine("@echo off");
-                script.AppendLine("echo ANG-Impianti: installazione aggiornamento...");
-                script.AppendLine("timeout /t 5 /nobreak >nul");
-                script.AppendLine("taskkill /f /im acad.exe 2>nul");
-                script.AppendLine("timeout /t 3 /nobreak >nul");
-                script.AppendLine("if exist \"" + bundleDest + "\" rmdir /s /q \"" + bundleDest + "\"");
-                script.AppendLine("if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" rmdir /s /q \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\"");
-                script.AppendLine("powershell -Command \"$zip='" + tempZip + "'; $dest='C:\\ProgramData\\Autodesk\\ApplicationPlugins'; Add-Type -Assembly System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)\"");
-                script.AppendLine("if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" ren \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" ANGImpianti.bundle");
-                script.AppendLine("del \"" + tempZip + "\" 2>nul");
-                script.AppendLine("echo.");
-                script.AppendLine("echo Aggiornamento completato!");
-                script.AppendLine("echo Ora puoi riaprire AutoCAD.");
-                script.AppendLine("pause");
+                // Apri Esplora File su ApplicationPlugins
+                System.Diagnostics.Process.Start("explorer.exe",
+                    @"C:\ProgramData\Autodesk\ApplicationPlugins");
 
-                File.WriteAllText(scriptPath, script.ToString());
+                // Apri la cartella del Desktop con lo zip
+                System.Diagnostics.Process.Start("explorer.exe",
+                    $"/select,\"{tempZip}\"");
 
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = scriptPath,
-                    UseShellExecute = true,
-                    Verb = "runas"
-                });
+                MessageBox.Show(
+                    "Scaricato! Ora:
 
-                Autodesk.AutoCAD.ApplicationServices.Application.Quit();
+" +
+                    "1. Chiudi AutoCAD
+" +
+                    "2. Apri ANGImpianti_update.zip dal Desktop
+" +
+                    "3. Copia ANGImpianti.bundle nella finestra ApplicationPlugins
+" +
+                    "4. Riapri AutoCAD
+
+" +
+                    "Le due cartelle sono già aperte!",
+                    "Installazione",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
             catch (System.Exception ex)
             {
