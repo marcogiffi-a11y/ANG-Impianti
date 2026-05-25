@@ -20,7 +20,7 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string GITHUB_REPO = "marcogiffi-a11y/ANG-Impianti";
-        private const string CURRENT_VERSION = "2.0";
+        private const string CURRENT_VERSION = "2.1";
         private const string BUNDLE_PATH = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
 
         public void Initialize()
@@ -54,7 +54,7 @@ namespace ImplantiAI
 
                 doc.Editor.WriteMessage(
                     "\n╔══════════════════════════╗\n" +
-                    "║  ANG-Impianti AI v2.0    ║\n" +
+                    "║  ANG-Impianti AI v2.1    ║\n" +
                     "║  Ribbon e Chat pronti!   ║\n" +
                     "╚══════════════════════════╝\n");
 
