@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
@@ -49,88 +50,92 @@ namespace ImplantiAI
                 Autodesk.AutoCAD.ApplicationServices.Application.Idle += OnIdle;
 
                 doc.Editor.WriteMessage(
-                    "\n╔══════════════════════════╗\n" +
-                    "║  ANG-Impianti AI v2.1    ║\n" +
-                    "║  Simboli F-05 + Auto-Upd ║\n" +
-                    "╚══════════════════════════╝\n");
+                    "\n╔══════════════════════════════╗\n" +
+                    "║  ANG-Impianti AI v2.1        ║\n" +
+                    "║  Controllo aggiornamenti...  ║\n" +
+                    "╚══════════════════════════════╝\n");
 
-                // Check for updates in background
-                Task.Run(async () =>
+                // Avvia updater dopo 3 secondi
+                var timer = new System.Windows.Forms.Timer();
+                timer.Interval = 3000;
+                timer.Tick += (s, e) =>
                 {
-                    try { await CheckForUpdatesAsync(doc); }
-                    catch (System.Exception ex) { Logger.Log("Updater: " + ex.Message); }
-                });
+                    timer.Stop();
+                    Task.Run(() => CheckForUpdates());
+                };
+                timer.Start();
             }
             catch (System.Exception ex)
             {
-                doc?.Editor.WriteMessage("\n✗ Errore avvio: " + ex.Message + "\n");
+                doc?.Editor.WriteMessage("\n✗ Errore: " + ex.Message + "\n");
             }
         }
 
-        private async Task CheckForUpdatesAsync(
-            Autodesk.AutoCAD.ApplicationServices.Document doc)
+        private void CheckForUpdates()
         {
             try
             {
-                doc?.Editor.WriteMessage("\nANG: controllo aggiornamenti...\n");
-
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
-                client.Timeout = TimeSpan.FromSeconds(15);
+                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti");
+                client.Timeout = TimeSpan.FromSeconds(10);
 
-                var json = await client.GetStringAsync(
-                    $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
+                var json = client.GetStringAsync(
+                    $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
+                    .GetAwaiter().GetResult();
 
                 var tagMatch = Regex.Match(json, "\"tag_name\":\\s*\"v?([^\"]+)\"");
-                if (!tagMatch.Success)
-                {
-                    doc?.Editor.WriteMessage("\nANG: impossibile leggere versione GitHub.\n");
-                    return;
-                }
+                if (!tagMatch.Success) return;
 
                 var latest = tagMatch.Groups[1].Value.Trim();
-                doc?.Editor.WriteMessage($"\nANG: v{CURRENT_VERSION} installata, v{latest} su GitHub.\n");
 
-                if (latest == CURRENT_VERSION) return;
+                // Scrivi nella command line
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                    .DocumentManager.MdiActiveDocument;
+                doc?.Editor.WriteMessage(
+                    $"\nANG-Impianti: v{CURRENT_VERSION} installata, v{latest} disponibile.\n");
+
+                if (latest == CURRENT_VERSION)
+                {
+                    doc?.Editor.WriteMessage("ANG-Impianti: già all'ultima versione ✓\n");
+                    return;
+                }
 
                 var urlMatch = Regex.Match(json,
                     "\"browser_download_url\":\\s*\"([^\"]+\\.zip)\"");
                 if (!urlMatch.Success) return;
                 var downloadUrl = urlMatch.Groups[1].Value;
 
-                // MessageBox.Show è thread-safe in WinForms
+                // Popup aggiornamento
                 var result = MessageBox.Show(
-                    $"Nuova versione ANG-Impianti disponibile!\n\n" +
-                    $"Installata: v{CURRENT_VERSION}\n" +
+                    $"ANG-Impianti: nuova versione disponibile!\n\n" +
+                    $"Installata:   v{CURRENT_VERSION}\n" +
                     $"Disponibile: v{latest}\n\n" +
-                    "Aggiornare adesso?",
-                    "ANG-Impianti - Aggiornamento",
+                    "Aggiornare adesso?\n(AutoCAD si riavvierà)",
+                    "Aggiornamento disponibile",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information);
 
                 if (result == DialogResult.Yes)
-                    await DownloadAndInstallAsync(downloadUrl);
+                    Task.Run(() => InstallUpdate(downloadUrl));
             }
             catch (System.Exception ex)
             {
-                doc?.Editor.WriteMessage($"\nANG: errore controllo update: {ex.Message}\n");
-                Logger.Log("UpdateCheck: " + ex.Message);
+                Logger.Log("UpdateCheck error: " + ex.Message);
             }
         }
 
-        private async Task DownloadAndInstallAsync(string downloadUrl)
+        private void InstallUpdate(string downloadUrl)
         {
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
 
-                MessageBox.Show(
-                    "Download in corso...\nAutoCAD si chiuderà al termine.",
+                MessageBox.Show("Download in corso...",
                     "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
-                var bytes = await client.GetByteArrayAsync(downloadUrl);
+                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti");
+                var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
 
                 var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
@@ -138,10 +143,11 @@ namespace ImplantiAI
                     "@echo off\r\n" +
                     "timeout /t 3 /nobreak >nul\r\n" +
                     "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"\r\n" +
-                    "powershell -Command \"Expand-Archive -Path '" + tempZip +
-                    "' -DestinationPath 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\' -Force\"\r\n" +
+                    "powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; " +
+                    "[IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip +
+                    "', 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\')\"\r\n" +
                     "del \"" + tempZip + "\"\r\n" +
-                    "start acad.exe\r\n");
+                    "start \"\" \"acad.exe\"\r\n");
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -154,8 +160,8 @@ namespace ImplantiAI
             }
             catch (System.Exception ex)
             {
-                Logger.Log("Install: " + ex.Message);
-                MessageBox.Show("Errore: " + ex.Message, "Errore aggiornamento",
+                Logger.Log("Install error: " + ex.Message);
+                MessageBox.Show("Errore: " + ex.Message, "Errore",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
