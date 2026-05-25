@@ -88,7 +88,9 @@ namespace ImplantiAI
                 if (latest == CURRENT_VERSION) return;
 
                 var result = MessageBox.Show(
-                    "ANG-Impianti: aggiornamento disponibile!\n\nVersione installata:   v" + CURRENT_VERSION + "\nVersione disponibile: v" + latest + "\n\nAggiornare adesso?\n(AutoCAD si riavvierà automaticamente)",
+                    "ANG-Impianti: aggiornamento disponibile!\n\nVersione installata: v" +
+                    CURRENT_VERSION + "\nVersione disponibile: v" + latest +
+                    "\n\nAggiornare adesso?\n(AutoCAD si chiudera e riaprira automaticamente)",
                     "Aggiornamento ANG-Impianti",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information);
@@ -96,44 +98,55 @@ namespace ImplantiAI
                 if (result == DialogResult.Yes && !string.IsNullOrEmpty(downloadUrl))
                     Task.Run(() => InstallUpdate(downloadUrl));
             }
-            catch (System.Exception ex)
-            {
-                Logger.Log("UpdateCheck: " + ex.Message);
-            }
+            catch (System.Exception ex) { Logger.Log("UpdateCheck: " + ex.Message); }
         }
 
         private void InstallUpdate(string downloadUrl)
         {
             try
             {
-                var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var zipPath = Path.Combine(desktop, "ANGImpianti_update.zip");
+                var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
+                var bundlePath = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
+                var pluginsPath = @"C:\ProgramData\Autodesk\ApplicationPlugins";
 
                 MessageBox.Show("Download in corso...", "Aggiornamento",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
 
+                // Download
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
                 client.Timeout = TimeSpan.FromMinutes(5);
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
-                File.WriteAllBytes(zipPath, bytes);
+                File.WriteAllBytes(tempZip, bytes);
 
-                // Apri ApplicationPlugins e seleziona lo zip sul Desktop
-                System.Diagnostics.Process.Start("explorer.exe",
-                    @"C:\ProgramData\Autodesk\ApplicationPlugins");
-                System.Diagnostics.Process.Start("explorer.exe",
-                    "/select,\"" + zipPath + "\"");
+                // Scrivi script PowerShell
+                var ps1Path = Path.Combine(Path.GetTempPath(), "ang_install.ps1");
+                var ps1 = string.Join(Environment.NewLine, new[]
+                {
+                    "Start-Sleep -Seconds 4",
+                    "Stop-Process -Name 'acad' -Force -ErrorAction SilentlyContinue",
+                    "Start-Sleep -Seconds 2",
+                    "if (Test-Path '" + bundlePath + "') { Remove-Item '" + bundlePath + "' -Recurse -Force }",
+                    "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Remove-Item '" + pluginsPath + "\\ANGImpianti' -Recurse -Force }",
+                    "Expand-Archive -Path '" + tempZip + "' -DestinationPath '" + pluginsPath + "' -Force",
+                    "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Rename-Item '" + pluginsPath + "\\ANGImpianti' 'ANGImpianti.bundle' }",
+                    "Remove-Item '" + tempZip + "' -Force -ErrorAction SilentlyContinue",
+                    "Write-Host 'Installazione completata! Riapro AutoCAD...'",
+                    "Start-Process 'acad.exe' -ErrorAction SilentlyContinue"
+                });
+                File.WriteAllText(ps1Path, ps1);
 
-                MessageBox.Show(
-                    "Download completato!\n\n" +
-                    "1. Chiudi AutoCAD\n" +
-                    "2. Apri ANGImpianti_update.zip dal Desktop\n" +
-                    "3. Copia ANGImpianti.bundle in ApplicationPlugins\n" +
-                    "4. Riapri AutoCAD\n\n" +
-                    "Le due cartelle sono gia aperte!",
-                    "Installazione",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                // Esegui PowerShell come admin
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + ps1Path + "\"",
+                    UseShellExecute = true,
+                    Verb = "runas"
+                });
+
+                // Chiudi AutoCAD
+                Autodesk.AutoCAD.ApplicationServices.Application.Quit();
             }
             catch (System.Exception ex)
             {
