@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.ApplicationServices;
+﻿﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -339,7 +339,10 @@ namespace ImplantiAI
                     if (e.Layer.StartsWith("VANO_") && e is Polyline polyVano && polyVano.Closed)
                     {
                         string tipo = e.Layer.Replace("VANO_", "").ToLower();
-                        double area = Math.Abs(polyVano.Area) / 1_000_000;
+                        // v2.12: leggi INSUNITS per scegliere divisore corretto
+                        // Millimeters=4 -> mm^2/1_000_000=m^2 ; Meters=6 -> gia m^2
+                        double areaDivisor = (db.Insunits == UnitsValue.Millimeters) ? 1_000_000.0 : 1.0;
+                        double area = Math.Abs(polyVano.Area) / areaDivisor;
                         double cx = 0, cy = 0;
                         double minX = double.MaxValue, minY = double.MaxValue;
                         double maxX = double.MinValue, maxY = double.MinValue;
