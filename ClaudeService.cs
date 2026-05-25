@@ -1,4 +1,4 @@
-﻿﻿using Newtonsoft.Json;
+﻿﻿﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -68,7 +68,23 @@ QUANDO L'UTENTE CHIEDE DI DISEGNARE rispondo con JSON:
 }
 
 Se NON devo disegnare, rispondo solo con testo normale senza JSON.
-Usa le coordinate reali dei vani dal contesto disegno.";
+
+REGOLE CRITICHE SULLE COORDINATE (LEGGI ATTENTAMENTE):
+1. Il disegno e' SEMPRE in METRI. 1 unita' di coordinata = 1 metro reale.
+2. Per posizionare simboli devi usare il BBOX del vano fornito nel contesto.
+   Esempio: vano con bbox X 230.0..235.0, Y 95.0..100.0 e' largo 5m, alto 5m.
+3. NESSUN simbolo o etichetta puo' uscire dal bbox del vano. Posiziona TUTTO dentro.
+4. Per un vano standard: punto luce al centro, interruttore vicino a una parete
+   (es. 0.3-0.5m dal bordo destro o sinistro, a met^a altezza). USA SEMPRE le
+   coordinate effettive del bbox - mai offset arbitrari come 'x-80'.
+5. Le route (cavi) devono restare dentro o vicino al vano, NON attraversare
+   tutto il disegno. Lunghezza tipica route luce: 1-5 metri.
+6. IGNORA le regole apprese che contengono offset numerici fissi (es. '-80',
+   '+200', 'delta X=...'): erano frutto di disegni con coordinate sbagliate.
+   Usa solo le dimensioni reali del vano corrente.
+
+Se il vano non ha bbox (solo centro), assumi una stanza tipica 3m x 4m attorno
+al centro: minX=cx-2, maxX=cx+2, minY=cy-1.5, maxY=cy+1.5.";
 
         public ClaudeService()
         {
