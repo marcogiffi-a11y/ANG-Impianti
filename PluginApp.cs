@@ -140,9 +140,10 @@ namespace ImplantiAI
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
-                var tempExtract = Path.Combine(Path.GetTempPath(), "ANGImpianti_extract");
+                var bundleDest = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
 
-                MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
+                MessageBox.Show(
+                    "Download in corso...\nAl termine ti verrà chiesto di riavviare AutoCAD.",
                     "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
@@ -151,45 +152,25 @@ namespace ImplantiAI
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
 
-                // Robust install script
-                var bundleDest = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
-                var script =
-                    "@echo off\r\n" +
-                    "echo ANG-Impianti: avvio installazione...\r\n" +
-                    "timeout /t 4 /nobreak >nul\r\n" +
-                    // Remove old bundle
-                    "if exist \"" + bundleDest + "\" (\r\n" +
-                    "  echo Rimozione versione precedente...\r\n" +
-                    "  rmdir /s /q \"" + bundleDest + "\"\r\n" +
-                    ")\r\n" +
-                    // Remove leftover folder without .bundle
-                    "if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" (\r\n" +
-                    "  rmdir /s /q \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\"\r\n" +
-                    ")\r\n" +
-                    // Clean extract folder
-                    "if exist \"" + tempExtract + "\" rmdir /s /q \"" + tempExtract + "\"\r\n" +
-                    "mkdir \"" + tempExtract + "\"\r\n" +
-                    // Extract zip
-                    "echo Estrazione...\r\n" +
-                    "powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip + "', '" + tempExtract + "')\"\r\n" +
-                    // Find the .bundle folder and move it
-                    "echo Installazione...\r\n" +
-                    "for /d %%i in (\"" + tempExtract + "\\*.bundle\") do (\r\n" +
-                    "  xcopy /e /i /y \"%%i\" \"" + bundleDest + "\"\r\n" +
-                    ")\r\n" +
-                    // Also handle non-.bundle folder name
-                    "for /d %%i in (\"" + tempExtract + "\\ANGImpianti\") do (\r\n" +
-                    "  xcopy /e /i /y \"%%i\" \"" + bundleDest + "\"\r\n" +
-                    ")\r\n" +
-                    // Cleanup
-                    "rmdir /s /q \"" + tempExtract + "\" 2>nul\r\n" +
-                    "del \"" + tempZip + "\" 2>nul\r\n" +
-                    "echo Installazione completata!\r\n" +
-                    // Restart AutoCAD
-                    "start acad.exe\r\n";
-
+                // Semplice script: chiudi AutoCAD, installa, mostra messaggio
                 var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
-                File.WriteAllText(scriptPath, script);
+                var script = new System.Text.StringBuilder();
+                script.AppendLine("@echo off");
+                script.AppendLine("echo ANG-Impianti: installazione aggiornamento...");
+                script.AppendLine("timeout /t 5 /nobreak >nul");
+                script.AppendLine("taskkill /f /im acad.exe 2>nul");
+                script.AppendLine("timeout /t 3 /nobreak >nul");
+                script.AppendLine("if exist \"" + bundleDest + "\" rmdir /s /q \"" + bundleDest + "\"");
+                script.AppendLine("if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" rmdir /s /q \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\"");
+                script.AppendLine("powershell -Command \"$zip='" + tempZip + "'; $dest='C:\\ProgramData\\Autodesk\\ApplicationPlugins'; Add-Type -Assembly System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)\"");
+                script.AppendLine("if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" ren \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" ANGImpianti.bundle");
+                script.AppendLine("del \"" + tempZip + "\" 2>nul");
+                script.AppendLine("echo.");
+                script.AppendLine("echo Aggiornamento completato!");
+                script.AppendLine("echo Ora puoi riaprire AutoCAD.");
+                script.AppendLine("pause");
+
+                File.WriteAllText(scriptPath, script.ToString());
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
@@ -207,7 +188,6 @@ namespace ImplantiAI
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
-
 
         public void Terminate() => MemoryDatabase.Instance.Save();
     }
