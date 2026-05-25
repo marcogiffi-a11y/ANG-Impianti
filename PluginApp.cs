@@ -20,10 +20,8 @@ namespace ImplantiAI
         public static PaletteSet? Palette { get; private set; }
         public static ChatPanel? Chat { get; private set; }
 
-        // Endpoint su Vercel - non rivela il repository privato
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        private const string CURRENT_VERSION = "2.4";
-        private const string BUNDLE_PATH = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
+        private const string CURRENT_VERSION = "2.3";
         private static bool _updateChecked = false;
 
         public void Initialize()
@@ -34,7 +32,6 @@ namespace ImplantiAI
             try
             {
                 MemoryDatabase.Instance.Initialize();
-
                 Palette = new PaletteSet("ANG-Impianti AI",
                     new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
                 Chat = new ChatPanel();
@@ -48,13 +45,8 @@ namespace ImplantiAI
                 Palette.DockEnabled = DockSides.Left | DockSides.Right;
                 Palette.Dock = DockSides.Right;
                 Palette.Visible = true;
-
                 Autodesk.AutoCAD.ApplicationServices.Application.Idle += OnIdle;
-
-                doc.Editor.WriteMessage(
-                    "\n╔══════════════════════════╗\n" +
-                    "║  ANG-Impianti AI v2.3    ║\n" +
-                    "╚══════════════════════════╝\n");
+                doc.Editor.WriteMessage("\nANG-Impianti AI v" + CURRENT_VERSION + " pronto.\n");
             }
             catch (System.Exception ex)
             {
@@ -67,7 +59,6 @@ namespace ImplantiAI
             Autodesk.AutoCAD.ApplicationServices.Application.Idle -= OnIdle;
             try { RibbonManager.CreateRibbon(); }
             catch (System.Exception ex) { Logger.Log("Ribbon: " + ex.Message); }
-
             if (!_updateChecked)
             {
                 _updateChecked = true;
@@ -78,9 +69,6 @@ namespace ImplantiAI
         [CommandMethod("CHECK_UPDATE")]
         public void CheckUpdateCommand()
         {
-            var doc = Autodesk.AutoCAD.ApplicationServices.Application
-                .DocumentManager.MdiActiveDocument;
-            doc?.Editor.WriteMessage("\nANG: controllo aggiornamenti...\n");
             Task.Run(() => CheckForUpdates());
         }
 
@@ -91,34 +79,16 @@ namespace ImplantiAI
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti/" + CURRENT_VERSION);
                 client.Timeout = TimeSpan.FromSeconds(15);
-
                 var json = client.GetStringAsync(UPDATE_URL).GetAwaiter().GetResult();
-
-                // Parse version and url from JSON
                 var verMatch = Regex.Match(json, "\"version\":\\s*\"([^\"]+)\"");
                 var urlMatch = Regex.Match(json, "\"url\":\\s*\"([^\"]+)\"");
-
                 if (!verMatch.Success) return;
-
                 var latest = verMatch.Groups[1].Value.Trim();
                 var downloadUrl = urlMatch.Success ? urlMatch.Groups[1].Value : "";
-
-                var doc = Autodesk.AutoCAD.ApplicationServices.Application
-                    .DocumentManager.MdiActiveDocument;
-                doc?.Editor.WriteMessage(
-                    $"\nANG: v{CURRENT_VERSION} installata, v{latest} disponibile.\n");
-
-                if (latest == CURRENT_VERSION)
-                {
-                    doc?.Editor.WriteMessage("ANG: sei all'ultima versione ✓\n");
-                    return;
-                }
+                if (latest == CURRENT_VERSION) return;
 
                 var result = MessageBox.Show(
-                    $"ANG-Impianti: aggiornamento disponibile!\n\n" +
-                    $"Versione installata:   v{CURRENT_VERSION}\n" +
-                    $"Versione disponibile: v{latest}\n\n" +
-                    "Aggiornare adesso?\n(AutoCAD si riavvierà automaticamente)",
+                    "ANG-Impianti: aggiornamento disponibile!\n\nVersione installata:   v" + CURRENT_VERSION + "\nVersione disponibile: v" + latest + "\n\nAggiornare adesso?\n(AutoCAD si riavvierà automaticamente)",
                     "Aggiornamento ANG-Impianti",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information);
@@ -129,9 +99,6 @@ namespace ImplantiAI
             catch (System.Exception ex)
             {
                 Logger.Log("UpdateCheck: " + ex.Message);
-                var doc = Autodesk.AutoCAD.ApplicationServices.Application
-                    .DocumentManager.MdiActiveDocument;
-                doc?.Editor.WriteMessage($"\nANG: errore controllo update: {ex.Message}\n");
             }
         }
 
@@ -139,41 +106,31 @@ namespace ImplantiAI
         {
             try
             {
-                // Download su Desktop
                 var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var tempZip = Path.Combine(desktop, "ANGImpianti_update.zip");
+                var zipPath = Path.Combine(desktop, "ANGImpianti_update.zip");
 
-                MessageBox.Show("Download in corso...",
-                    "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Download in corso...", "Aggiornamento",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
                 client.Timeout = TimeSpan.FromMinutes(5);
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
-                File.WriteAllBytes(tempZip, bytes);
+                File.WriteAllBytes(zipPath, bytes);
 
-                // Apri Esplora File su ApplicationPlugins
+                // Apri ApplicationPlugins e seleziona lo zip sul Desktop
                 System.Diagnostics.Process.Start("explorer.exe",
                     @"C:\ProgramData\Autodesk\ApplicationPlugins");
-
-                // Apri la cartella del Desktop con lo zip
                 System.Diagnostics.Process.Start("explorer.exe",
-                    $"/select,\"{tempZip}\"");
+                    "/select,\"" + zipPath + "\"");
 
                 MessageBox.Show(
-                    "Scaricato! Ora:
-
-" +
-                    "1. Chiudi AutoCAD
-" +
-                    "2. Apri ANGImpianti_update.zip dal Desktop
-" +
-                    "3. Copia ANGImpianti.bundle nella finestra ApplicationPlugins
-" +
-                    "4. Riapri AutoCAD
-
-" +
-                    "Le due cartelle sono già aperte!",
+                    "Download completato!\n\n" +
+                    "1. Chiudi AutoCAD\n" +
+                    "2. Apri ANGImpianti_update.zip dal Desktop\n" +
+                    "3. Copia ANGImpianti.bundle in ApplicationPlugins\n" +
+                    "4. Riapri AutoCAD\n\n" +
+                    "Le due cartelle sono gia aperte!",
                     "Installazione",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
