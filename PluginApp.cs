@@ -21,7 +21,7 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        private const string CURRENT_VERSION = "2.3";
+        private const string CURRENT_VERSION = "2.5";
         private static bool _updateChecked = false;
 
         public void Initialize()
@@ -132,7 +132,7 @@ namespace ImplantiAI
                     "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Rename-Item '" + pluginsPath + "\\ANGImpianti' 'ANGImpianti.bundle' }",
                     "Remove-Item '" + tempZip + "' -Force -ErrorAction SilentlyContinue",
                     "Write-Host 'Installazione completata! Riapro AutoCAD...'",
-                    "Start-Process 'acad.exe' -ErrorAction SilentlyContinue"
+                    "$acadPaths = @('${env:ProgramFiles}\Autodesk\AutoCAD 2025\acad.exe','${env:ProgramFiles}\Autodesk\AutoCAD 2024\acad.exe'); foreach($p in $acadPaths){ if(Test-Path $p){ Start-Process $p; break } }"
                 });
                 File.WriteAllText(ps1Path, ps1);
 
