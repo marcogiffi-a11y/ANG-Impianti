@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.DatabaseServices;
+﻿﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -217,14 +217,21 @@ namespace ImplantiAI
 
                         if (btr == null) return;
 
+                        Logger.Log("EXECUTE: " + commands.Count + " drawing commands");
+                        int execIdx = 0;
                         foreach (var cmd in commands)
                         {
+                            execIdx++;
                             var pos = new Autodesk.AutoCAD.Geometry.Point3d(cmd.X, cmd.Y, 0);
                             var layer = string.IsNullOrEmpty(cmd.Layer)
                                 ? SymbolDrawer.GetLayerForSymbol(cmd.SymbolType)
                                 : cmd.Layer;
 
                             EnsureLayer(tr, db, layer);
+
+                            Logger.Log("  exec #" + execIdx + ": action=" + cmd.Action +
+                                " type=" + cmd.SymbolType + " pos=(" + cmd.X + "," + cmd.Y +
+                                ") to=(" + cmd.X2 + "," + cmd.Y2 + ") layer=" + layer);
 
                             switch (cmd.Action.ToLower())
                             {
