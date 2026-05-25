@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿using Autodesk.AutoCAD.Runtime;
+﻿﻿﻿﻿﻿﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Windows;
 using System;
 using System.Drawing;
@@ -21,7 +21,7 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        public  const string CURRENT_VERSION = "2.11";
+        public  const string CURRENT_VERSION = "2.12";
         private static bool _updateChecked = false;
         private static string _acadExePath = "";
 
