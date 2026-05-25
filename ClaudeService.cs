@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -81,6 +81,13 @@ Usa le coordinate reali dei vani dal contesto disegno.";
         public async Task<ClaudeResponse?> Chat(
             List<ChatMessage> history, string drawingContext)
         {
+            // [DEBUG v2.10] log query + context
+            Logger.Log("=== CHAT START ===");
+            if (history != null && history.Count > 0)
+                Logger.Log("USER QUERY: " + (history[history.Count - 1].Content ?? "").Replace("\n", " | "));
+            Logger.Log("DRAWING CONTEXT (len=" + (drawingContext?.Length ?? 0) + "):\n" +
+                (drawingContext != null && drawingContext.Length > 2000
+                    ? drawingContext.Substring(0, 2000) + "...[truncated]" : (drawingContext ?? "")));
             if (string.IsNullOrEmpty(_apiKey))
                 throw new System.Exception(
                     "API Key non configurata!\n" +
@@ -124,7 +131,20 @@ Usa le coordinate reali dei vani dal contesto disegno.";
 
                 var json = JObject.Parse(respStr);
                 var text = json["content"]?[0]?["text"]?.ToString() ?? "";
-                return ParseResponse(text);
+                // [DEBUG v2.10] log raw Claude response
+                Logger.Log("CLAUDE RAW RESPONSE (len=" + text.Length + "):\n" +
+                    (text.Length > 3000 ? text.Substring(0, 3000) + "...[truncated]" : text));
+                var parsed = ParseResponse(text);
+                Logger.Log("PARSED: text_len=" + (parsed?.Text?.Length ?? 0) +
+                    " commands=" + (parsed?.Commands?.Count ?? 0) +
+                    " learn_rule=" + (parsed?.LearnRule ?? "(none)"));
+                if (parsed?.Commands != null)
+                    foreach (var c in parsed.Commands)
+                        Logger.Log("  CMD: action=" + c.Action + " type=" + c.SymbolType +
+                            " x=" + c.X + " y=" + c.Y + " x2=" + c.X2 + " y2=" + c.Y2 +
+                            " label=" + c.Label + " layer=" + c.Layer);
+                Logger.Log("=== CHAT END ===\n");
+                return parsed;
             }
             catch (TaskCanceledException)
             {
