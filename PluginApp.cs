@@ -19,8 +19,9 @@ namespace ImplantiAI
         public static PaletteSet? Palette { get; private set; }
         public static ChatPanel? Chat { get; private set; }
 
-        private const string GITHUB_REPO = "marcogiffi-a11y/ANG-Impianti";
-        private const string CURRENT_VERSION = "2.2";
+        // Endpoint su Vercel - non rivela il repository privato
+        private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
+        private const string CURRENT_VERSION = "2.3";
         private const string BUNDLE_PATH = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
         private static bool _updateChecked = false;
 
@@ -47,12 +48,11 @@ namespace ImplantiAI
                 Palette.Dock = DockSides.Right;
                 Palette.Visible = true;
 
-                // Usa Idle per ribbon E per check aggiornamenti
                 Autodesk.AutoCAD.ApplicationServices.Application.Idle += OnIdle;
 
                 doc.Editor.WriteMessage(
                     "\n╔══════════════════════════╗\n" +
-                    "║  ANG-Impianti AI v2.2    ║\n" +
+                    "║  ANG-Impianti AI v2.3    ║\n" +
                     "╚══════════════════════════╝\n");
             }
             catch (System.Exception ex)
@@ -64,16 +64,9 @@ namespace ImplantiAI
         private void OnIdle(object? sender, EventArgs e)
         {
             Autodesk.AutoCAD.ApplicationServices.Application.Idle -= OnIdle;
-            try
-            {
-                RibbonManager.CreateRibbon();
-            }
-            catch (System.Exception ex)
-            {
-                Logger.Log("Ribbon: " + ex.Message);
-            }
+            try { RibbonManager.CreateRibbon(); }
+            catch (System.Exception ex) { Logger.Log("Ribbon: " + ex.Message); }
 
-            // Check aggiornamenti una sola volta
             if (!_updateChecked)
             {
                 _updateChecked = true;
@@ -81,45 +74,63 @@ namespace ImplantiAI
             }
         }
 
+        [CommandMethod("CHECK_UPDATE")]
+        public void CheckUpdateCommand()
+        {
+            var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                .DocumentManager.MdiActiveDocument;
+            doc?.Editor.WriteMessage("\nANG: controllo aggiornamenti...\n");
+            Task.Run(() => CheckForUpdates());
+        }
+
         private void CheckForUpdates()
         {
             try
             {
                 using var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater/2.2");
+                client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti/" + CURRENT_VERSION);
                 client.Timeout = TimeSpan.FromSeconds(15);
 
-                var json = client.GetStringAsync(
-                    $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest")
-                    .GetAwaiter().GetResult();
+                var json = client.GetStringAsync(UPDATE_URL).GetAwaiter().GetResult();
 
-                var tagMatch = Regex.Match(json, "\"tag_name\":\\s*\"v?([^\"]+)\"");
-                if (!tagMatch.Success) return;
+                // Parse version and url from JSON
+                var verMatch = Regex.Match(json, "\"version\":\\s*\"([^\"]+)\"");
+                var urlMatch = Regex.Match(json, "\"url\":\\s*\"([^\"]+)\"");
 
-                var latest = tagMatch.Groups[1].Value.Trim();
-                if (latest == CURRENT_VERSION) return;
+                if (!verMatch.Success) return;
 
-                var urlMatch = Regex.Match(json,
-                    "\"browser_download_url\":\\s*\"([^\"]+\\.zip)\"");
-                if (!urlMatch.Success) return;
-                var downloadUrl = urlMatch.Groups[1].Value;
+                var latest = verMatch.Groups[1].Value.Trim();
+                var downloadUrl = urlMatch.Success ? urlMatch.Groups[1].Value : "";
 
-                // Mostra popup (MessageBox è thread-safe)
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                    .DocumentManager.MdiActiveDocument;
+                doc?.Editor.WriteMessage(
+                    $"\nANG: v{CURRENT_VERSION} installata, v{latest} disponibile.\n");
+
+                if (latest == CURRENT_VERSION)
+                {
+                    doc?.Editor.WriteMessage("ANG: sei all'ultima versione ✓\n");
+                    return;
+                }
+
                 var result = MessageBox.Show(
-                    $"ANG-Impianti: nuova versione!\n\n" +
-                    $"Installata:   v{CURRENT_VERSION}\n" +
-                    $"Disponibile: v{latest}\n\n" +
-                    "Aggiornare adesso?",
-                    "Aggiornamento disponibile",
+                    $"ANG-Impianti: aggiornamento disponibile!\n\n" +
+                    $"Versione installata:   v{CURRENT_VERSION}\n" +
+                    $"Versione disponibile: v{latest}\n\n" +
+                    "Aggiornare adesso?\n(AutoCAD si riavvierà automaticamente)",
+                    "Aggiornamento ANG-Impianti",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Information);
 
-                if (result == DialogResult.Yes)
+                if (result == DialogResult.Yes && !string.IsNullOrEmpty(downloadUrl))
                     Task.Run(() => InstallUpdate(downloadUrl));
             }
             catch (System.Exception ex)
             {
                 Logger.Log("UpdateCheck: " + ex.Message);
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                    .DocumentManager.MdiActiveDocument;
+                doc?.Editor.WriteMessage($"\nANG: errore controllo update: {ex.Message}\n");
             }
         }
 
@@ -129,7 +140,7 @@ namespace ImplantiAI
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
 
-                MessageBox.Show("Download in corso...",
+                MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
                     "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 using var client = new HttpClient();
@@ -143,10 +154,11 @@ namespace ImplantiAI
                     "timeout /t 3 /nobreak >nul\r\n" +
                     "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"\r\n" +
                     "powershell -Command \"Add-Type -Assembly System.IO.Compression.FileSystem; " +
-                    "[IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip +
-                    "', 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\')\"\r\n" +
+                    "[IO.Compression.ZipFile]::ExtractToDirectory('" + tempZip.Replace("\\","\\\\") +
+                    "', 'C:\\\\ProgramData\\\\Autodesk\\\\ApplicationPlugins\\\\')\"\r\n" +
+                    "if exist \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" " +
                     "ren \"C:\\ProgramData\\Autodesk\\ApplicationPlugins\\ANGImpianti\" \"ANGImpianti.bundle\"\r\n" +
-                    "del \"" + tempZip + "\"\r\n" +
+                    "del \"" + tempZip + "\" 2>nul\r\n" +
                     "start \"\" \"%PROGRAMFILES%\\Autodesk\\AutoCAD 2025\\acad.exe\"\r\n");
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
