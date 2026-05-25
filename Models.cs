@@ -11,6 +11,10 @@ namespace ImplantiAI
         public double CenterY { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
+        public double MinX { get; set; }
+        public double MinY { get; set; }
+        public double MaxX { get; set; }
+        public double MaxY { get; set; }
     }
 
     public class CircuitData
@@ -24,6 +28,16 @@ namespace ImplantiAI
         public int SocketPoints { get; set; }
         public string CircuitNumber { get; set; } = "";
         public List<string> Notes { get; set; } = new();
+        public List<SymbolPlacement> Symbols { get; set; } = new();
+    }
+
+    public class SymbolPlacement
+    {
+        public string Type { get; set; } = "";
+        public double X { get; set; }
+        public double Y { get; set; }
+        public string Label { get; set; } = "";
+        public string Layer { get; set; } = "";
     }
 
     public class ProjectData
@@ -32,6 +46,13 @@ namespace ImplantiAI
         public string FilePath { get; set; } = "";
         public List<RoomData> Rooms { get; set; } = new();
         public List<CircuitData> Circuits { get; set; } = new();
+    }
+
+    public class UserRule
+    {
+        public string Rule { get; set; } = "";
+        public string Context { get; set; } = "";
+        public int UsageCount { get; set; }
     }
 
     public class GeometryData
@@ -56,9 +77,27 @@ namespace ImplantiAI
         public string Content { get; set; } = "";
     }
 
+    // Risposta strutturata da Claude con comandi di disegno
     public class ClaudeResponse
     {
         public string Text { get; set; } = "";
+        public bool HasDrawingCommands => Commands != null && Commands.Count > 0;
+        public List<DrawCommand>? Commands { get; set; }
+        public string? LearnRule { get; set; } // Regola da imparare
+    }
+
+    public class DrawCommand
+    {
+        public string Action { get; set; } = ""; // symbol, route, label, room
+        public string SymbolType { get; set; } = "";
+        public string Layer { get; set; } = "";
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double X2 { get; set; }
+        public double Y2 { get; set; }
+        public string Label { get; set; } = "";
+        public string CableSection { get; set; } = "";
+        public string RoomName { get; set; } = "";
     }
 
     public static class Logger
@@ -71,7 +110,8 @@ namespace ImplantiAI
                     System.Environment.GetFolderPath(
                         System.Environment.SpecialFolder.ApplicationData),
                     "ANGImpianti", "plugin.log");
-                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                System.IO.Directory.CreateDirectory(
+                    System.IO.Path.GetDirectoryName(path)!);
                 System.IO.File.AppendAllText(path,
                     $"[{System.DateTime.Now:HH:mm:ss}] {msg}\n");
             }
