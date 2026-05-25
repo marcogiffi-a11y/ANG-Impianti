@@ -173,7 +173,7 @@ namespace ImplantiAI
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var ed = doc.Editor;
-            var rules = MemoryDatabase.Instance.GetRules();
+            var rules = MemoryDatabase.Instance.GetRulesForPrompt();
             if (rules.Count == 0)
             {
                 ed.WriteMessage("\nNessuna regola salvata.\n");
