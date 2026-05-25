@@ -22,7 +22,7 @@ namespace ImplantiAI
         {
             BuildUI();
             AddBubble("assistant",
-                "Ciao! Sono l'assistente ANG-Impianti AI v2.0\n\n" +
+                "Ciao! Sono l'assistente ANG-Impianti AI v2.1\n\n" +
                 "Posso disegnare direttamente su AutoCAD:\n" +
                 "• Circuiti luce e prese\n" +
                 "• Tracciati con etichette cavo\n" +
@@ -46,7 +46,7 @@ namespace ImplantiAI
             };
             hdr.Child = new TextBlock
             {
-                Text = "🤖 ANG-Impianti AI v2.0",
+                Text = "🤖 ANG-Impianti AI v2.1",
                 Foreground = Brushes.White,
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
