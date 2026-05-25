@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using System.Windows.Forms.Integration;
 
 [assembly: CommandClass(typeof(ImplantiAI.Commands))]
+[assembly: CommandClass(typeof(ImplantiAI.PluginApp))]
 [assembly: ExtensionApplication(typeof(ImplantiAI.PluginApp))]
 
 namespace ImplantiAI
