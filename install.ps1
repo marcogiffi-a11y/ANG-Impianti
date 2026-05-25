@@ -8,7 +8,7 @@ Write-Host ""
 
 $bundlePath = "C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle"
 $tempZip = "$env:TEMP\ANGImpianti_v24.zip"
-$downloadUrl = "https://ang-gest.vercel.app/api/ang-impianti-download"
+$downloadUrl = "https://github.com/marcogiffi-a11y/ANG-Impianti/releases/latest/download/ANGImpianti.zip"
 
 # Step 1: Download
 Write-Host "1. Download in corso..." -ForegroundColor Yellow
