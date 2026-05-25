@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.Runtime;
+﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Windows;
 using System;
 using System.Drawing;
@@ -21,7 +21,7 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        private const string CURRENT_VERSION = "2.5";
+        private const string CURRENT_VERSION = "2.7";
         private static bool _updateChecked = false;
 
         public void Initialize()
@@ -50,7 +50,7 @@ namespace ImplantiAI
             }
             catch (System.Exception ex)
             {
-                doc?.Editor.WriteMessage("\n✗ Errore: " + ex.Message + "\n");
+                doc?.Editor.WriteMessage("\nErrore: " + ex.Message + "\n");
             }
         }
 
@@ -101,6 +101,15 @@ namespace ImplantiAI
             catch (System.Exception ex) { Logger.Log("UpdateCheck: " + ex.Message); }
         }
 
+        // ================================================================
+        //  InstallUpdate v2.7 - fix:
+        //  - rimosso MessageBox "Download in corso" bloccante (era PRIMA del download)
+        //  - kill processi Autodesk esteso (non solo acad.exe)
+        //  - retry su Remove-Item con backoff (gestisce lock residui)
+        //  - PowerShell con WindowStyle Normal (errori visibili)
+        //  - pausa finale (5s) per leggere eventuali errori
+        //  - supporto riapertura AutoCAD 2024/2025/2026
+        // ================================================================
         private void InstallUpdate(string downloadUrl)
         {
             try
@@ -109,43 +118,100 @@ namespace ImplantiAI
                 var bundlePath = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
                 var pluginsPath = @"C:\ProgramData\Autodesk\ApplicationPlugins";
 
-                MessageBox.Show("Download in corso...", "Aggiornamento",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                // Download
+                // 1) Download (silenzioso, senza popup bloccante)
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-Updater");
                 client.Timeout = TimeSpan.FromMinutes(5);
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
 
-                // Scrivi script PowerShell
+                // 2) Feedback DOPO il download (non blocca il download stesso)
+                MessageBox.Show(
+                    "Download completato (" + (bytes.Length / 1024) + " KB).\n\n" +
+                    "AutoCAD sta per chiudersi. Una finestra PowerShell si aprira\n" +
+                    "per completare l'installazione (e' normale, lasciala lavorare).\n\n" +
+                    "Al termine AutoCAD si riavviera automaticamente.",
+                    "Aggiornamento ANG-Impianti",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // 3) Scrivi script PowerShell di install
                 var ps1Path = Path.Combine(Path.GetTempPath(), "ang_install.ps1");
                 var ps1 = string.Join(Environment.NewLine, new[]
                 {
-                    "Start-Sleep -Seconds 4",
-                    "Stop-Process -Name 'acad' -Force -ErrorAction SilentlyContinue",
-                    "Start-Sleep -Seconds 2",
-                    "if (Test-Path '" + bundlePath + "') { Remove-Item '" + bundlePath + "' -Recurse -Force }",
-                    "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Remove-Item '" + pluginsPath + "\\ANGImpianti' -Recurse -Force }",
+                    "$ErrorActionPreference = 'Continue'",
+                    "Write-Host '========================================' -ForegroundColor Cyan",
+                    "Write-Host '  ANG-Impianti Updater                  ' -ForegroundColor Cyan",
+                    "Write-Host '========================================' -ForegroundColor Cyan",
+                    "Write-Host ''",
+                    "Write-Host '[1/5] Kill processi Autodesk...'",
+                    "Get-Process | Where-Object { $_.ProcessName -match 'acad|AcWebBrowser|AdSSO|AdAppMgrSvc|AutodeskDesktopApp|DLM|Autoload|adsk' } | Stop-Process -Force -ErrorAction SilentlyContinue",
+                    "Start-Sleep -Seconds 5",
+                    "Write-Host '[2/5] Rimozione bundle vecchio (con retry)...'",
+                    "$bundlePath = '" + bundlePath + "'",
+                    "$ok = $false",
+                    "for ($i = 1; $i -le 5 -and -not $ok; $i++) {",
+                    "    try {",
+                    "        if (Test-Path $bundlePath) { Remove-Item $bundlePath -Recurse -Force }",
+                    "        $ok = $true",
+                    "        Write-Host '      OK al tentativo' $i -ForegroundColor Green",
+                    "    } catch {",
+                    "        Write-Host '      Tentativo' $i 'fallito (lock?). Attendo...' -ForegroundColor Yellow",
+                    "        Start-Sleep -Seconds ($i * 2)",
+                    "    }",
+                    "}",
+                    "if (-not $ok) {",
+                    "    Write-Host 'IMPOSSIBILE RIMUOVERE IL BUNDLE - chiudi manualmente eventuali processi Autodesk e riprova' -ForegroundColor Red",
+                    "    Read-Host 'Premi INVIO per chiudere'",
+                    "    exit 1",
+                    "}",
+                    "Write-Host '[3/5] Estrazione nuovo bundle...'",
                     "Expand-Archive -Path '" + tempZip + "' -DestinationPath '" + pluginsPath + "' -Force",
                     "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Rename-Item '" + pluginsPath + "\\ANGImpianti' 'ANGImpianti.bundle' }",
+                    "Write-Host '[4/5] Verifica DLL...'",
+                    "$dll = $bundlePath + '\\Contents\\2025\\ImplantiAI.dll'",
+                    "if (Test-Path $dll) {",
+                    "    Write-Host '      OK DLL presente' -ForegroundColor Green",
+                    "} else {",
+                    "    Write-Host '      MANCA DLL - estrazione fallita' -ForegroundColor Red",
+                    "    Get-ChildItem $bundlePath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('   ' + $_.FullName) }",
+                    "    Read-Host 'Premi INVIO per chiudere'",
+                    "    exit 1",
+                    "}",
                     "Remove-Item '" + tempZip + "' -Force -ErrorAction SilentlyContinue",
-                    "Write-Host 'Installazione completata! Riapro AutoCAD...'",
-                    "$p1 = $env:ProgramFiles + '\\Autodesk\\AutoCAD 2025\\acad.exe'; $p2 = $env:ProgramFiles + '\\Autodesk\\AutoCAD 2024\\acad.exe'; if(Test-Path $p1){Start-Process $p1}elseif(Test-Path $p2){Start-Process $p2}"
+                    "Write-Host '[5/5] Riavvio AutoCAD...'",
+                    "$candidates = @(",
+                    "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2026\\acad.exe\",",
+                    "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2025\\acad.exe\",",
+                    "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2024\\acad.exe\"",
+                    ")",
+                    "$started = $false",
+                    "foreach ($p in $candidates) {",
+                    "    if (Test-Path $p) {",
+                    "        Start-Process $p",
+                    "        Write-Host ('      Avviato: ' + $p) -ForegroundColor Green",
+                    "        $started = $true",
+                    "        break",
+                    "    }",
+                    "}",
+                    "if (-not $started) { Write-Host 'AutoCAD non trovato, aprilo manualmente' -ForegroundColor Yellow }",
+                    "Write-Host ''",
+                    "Write-Host '========================================' -ForegroundColor Green",
+                    "Write-Host '  Aggiornamento completato!             ' -ForegroundColor Green",
+                    "Write-Host '========================================' -ForegroundColor Green",
+                    "Start-Sleep -Seconds 5"
                 });
                 File.WriteAllText(ps1Path, ps1);
 
-                // Esegui PowerShell come admin
+                // 4) Esegui PowerShell con finestra VISIBILE (Normal style)
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + ps1Path + "\"",
+                    Arguments = "-ExecutionPolicy Bypass -WindowStyle Normal -NoProfile -File \"" + ps1Path + "\"",
                     UseShellExecute = true,
                     Verb = "runas"
                 });
 
-                // Chiudi AutoCAD
+                // 5) Chiudi AutoCAD (lo script PS aspetta 5s e poi killa il resto)
                 Autodesk.AutoCAD.ApplicationServices.Application.Quit();
             }
             catch (System.Exception ex)
