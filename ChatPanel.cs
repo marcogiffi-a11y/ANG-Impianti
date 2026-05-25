@@ -1,4 +1,4 @@
-﻿﻿using Autodesk.AutoCAD.DatabaseServices;
+﻿﻿﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -240,8 +240,8 @@ namespace ImplantiAI
                                     if (!string.IsNullOrEmpty(cmd.Label))
                                         SymbolDrawer.AddText(tr, btr,
                                             new Autodesk.AutoCAD.Geometry.Point3d(
-                                                cmd.X, cmd.Y + 200, 0),
-                                            cmd.Label, 100, layer);
+                                                cmd.X, cmd.Y + 0.2, 0),  // v2.11: offset 20cm (era 200m!)
+                                            cmd.Label, 0.15, layer);     // v2.11: testo 15cm (era 100m!)
                                     break;
 
                                 case "route":
@@ -254,7 +254,7 @@ namespace ImplantiAI
 
                                 case "label":
                                     SymbolDrawer.AddText(tr, btr, pos,
-                                        cmd.Label, 100, layer);
+                                        cmd.Label, 0.15, layer);  // v2.11: testo 15cm
                                     break;
                             }
                         }
