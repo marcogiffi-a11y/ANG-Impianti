@@ -10,7 +10,6 @@ namespace ImplantiAI
             var rc = ComponentManager.Ribbon;
             if (rc == null) return;
 
-            // Rimuovi tab esistente
             RibbonTab? old = null;
             foreach (var t in rc.Tabs)
                 if (t.Id == "ANG_TAB") { old = t; break; }
@@ -23,9 +22,11 @@ namespace ImplantiAI
                 MkBig("Disegna\nVano", "DISEGNA_VANO"),
                 MkBig("Riconosci\nVani", "RICONOSCI_VANI")));
 
-            // CHAT
+            // AI
             tab.Panels.Add(MkPanel("AI",
-                MkBig("Chat\nAI", "APRI_CHAT")));
+                MkBig("Chat\nAI", "APRI_CHAT"),
+                MkBig("Ricorda\nRegola", "RICORDA_REGOLA"),
+                MkBig("Mostra\nRegole", "MOSTRA_REGOLE")));
 
             // ILLUMINAZIONE
             tab.Panels.Add(MkPanel("Illuminazione",
@@ -69,7 +70,8 @@ namespace ImplantiAI
 
         private static RibbonPanel MkPanel(string title, params RibbonItem[] items)
         {
-            var p = new RibbonPanel { Source = new RibbonPanelSource { Title = title } };
+            var p = new RibbonPanel
+            { Source = new RibbonPanelSource { Title = title } };
             foreach (var item in items) p.Source.Items.Add(item);
             return p;
         }
