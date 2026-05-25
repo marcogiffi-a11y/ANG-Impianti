@@ -186,7 +186,7 @@ namespace ImplantiAI
                     "del \"" + tempZip + "\" 2>nul\r\n" +
                     "echo Installazione completata!\r\n" +
                     // Restart AutoCAD
-                    "start \"" "" "\"\r\n";
+                    "start acad.exe\r\n";
 
                 var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
                 File.WriteAllText(scriptPath, script);
