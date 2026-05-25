@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -22,7 +22,7 @@ namespace ImplantiAI
         {
             BuildUI();
             AddBubble("assistant",
-                "Ciao! Sono l'assistente ANG-Impianti AI v2.2\n\n" +
+                "Ciao! Sono l'assistente ANG-Impianti AI v" + PluginApp.CURRENT_VERSION + "\n\n" +
                 "Posso disegnare direttamente su AutoCAD:\n" +
                 "• Circuiti luce e prese\n" +
                 "• Tracciati con etichette cavo\n" +
@@ -46,7 +46,7 @@ namespace ImplantiAI
             };
             hdr.Child = new TextBlock
             {
-                Text = "🤖 ANG-Impianti AI v2.2",
+                Text = "ANG-Impianti AI v" + PluginApp.CURRENT_VERSION,
                 Foreground = Brushes.White,
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
