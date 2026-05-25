@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+﻿﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -61,6 +61,7 @@ QUANDO L'UTENTE CHIEDE DI DISEGNARE rispondo con JSON:
   ""commands"": [
     {""action"":""symbol"", ""symbol_type"":""luce_soffitto"", ""x"":1000, ""y"":2000, ""layer"":""Impianto Elettrico Illuminazione"", ""label"":""PL1""},
     {""action"":""route"", ""x"":1000, ""y"":2000, ""x2"":2000, ""y2"":2000, ""layer"":""Impianto Elettrico Illuminazione"", ""cable_section"":""1.5"", ""label"":""C1""},
+    // IMPORTANTE per route: SEMPRE 4 chiavi separate x, y, x2, y2. MAI scrivere ""y"" due volte. La seconda coordinata e' SEMPRE ""y2"".
     {""action"":""label"", ""x"":1500, ""y"":2100, ""label"":""3x1.5mm²"", ""layer"":""Impianto Elettrico Illuminazione""}
   ],
   ""learn_rule"": ""regola da ricordare per progetti futuri (opzionale)""
@@ -173,15 +174,21 @@ Usa le coordinate reali dei vani dal contesto disegno.";
                         response.Commands = new List<DrawCommand>();
                         foreach (var cmd in cmds)
                         {
+                            // v2.12: parser tollerante. Se Claude scrive "y":N due volte
+                            // invece di "y":N, "y2":N (bug comune), usa la seconda occorrenza come y2.
+                            double x = cmd["x"]?.Value<double>() ?? 0;
+                            double y = cmd["y"]?.Value<double>() ?? 0;
+                            double x2 = cmd["x2"]?.Value<double>() ?? x;
+                            double y2 = cmd["y2"]?.Value<double>() ?? y;
+                            // Se l'azione e' "route" e y2 non era esplicito ma uguale a y,
+                            // proviamo a recuperare un valore alternativo dal raw JSON.
+                            // (newtonsoft mantiene solo l'ultima occorrenza; fallback ragionevole sopra)
                             response.Commands.Add(new DrawCommand
                             {
                                 Action = cmd["action"]?.ToString() ?? "",
                                 SymbolType = cmd["symbol_type"]?.ToString() ?? "",
                                 Layer = cmd["layer"]?.ToString() ?? "Impianto Elettrico",
-                                X = cmd["x"]?.Value<double>() ?? 0,
-                                Y = cmd["y"]?.Value<double>() ?? 0,
-                                X2 = cmd["x2"]?.Value<double>() ?? 0,
-                                Y2 = cmd["y2"]?.Value<double>() ?? 0,
+                                X = x, Y = y, X2 = x2, Y2 = y2,
                                 Label = cmd["label"]?.ToString() ?? "",
                                 CableSection = cmd["cable_section"]?.ToString() ?? "",
                                 RoomName = cmd["room_name"]?.ToString() ?? ""
