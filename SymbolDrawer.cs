@@ -1,23 +1,23 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 
 namespace ImplantiAI
 {
-    // ════════════════════════════════════════════════════════════════════
+    // ====================================================================
     //  SymbolDrawer v2.6
     //  Simboli fedeli alla legenda F-05 Athena Next Gen Impianto Elettrico.
     //  Tutte le geometrie sono estratte direttamente dal DXF di riferimento
     //  e centrate sull'origine del simbolo (pos = punto di inserimento).
-    //  Unità: 1 unità AutoCAD = 1 metro (scala 1:1).
-    // ════════════════════════════════════════════════════════════════════
+    //  Unita: 1 unita AutoCAD = 1 metro (scala 1:1).
+    // ====================================================================
     public static class SymbolDrawer
     {
         private const double DEG = Math.PI / 180.0;
         private static Point3d P(double x, double y) => new Point3d(x, y, 0);
 
-        // ─── Dispatch principale ───────────────────────────────────────
+        // --- Dispatch principale ---------------------------------------
         public static void Draw(Transaction tr, BlockTableRecord btr,
             string symbolType, Point3d pos, string layer)
         {
@@ -65,7 +65,7 @@ namespace ImplantiAI
             }
         }
 
-        // ─── Layer di default per ciascun simbolo ──────────────────────
+        // --- Layer di default per ciascun simbolo ----------------------
         public static string GetLayerForSymbol(string symbolType)
         {
             switch ((symbolType ?? "").ToLowerInvariant())
@@ -112,7 +112,7 @@ namespace ImplantiAI
             }
         }
 
-        // ─── Mappa key -> descrizione (utile per UI e Mary AI) ─────────
+        // --- Mappa key -> descrizione (utile per UI e Mary AI) ---------
         public static readonly IReadOnlyDictionary<string, string> SymbolDescriptions
             = new Dictionary<string, string>
             {
@@ -134,7 +134,7 @@ namespace ImplantiAI
                 {"pulsante_targh", "Pulsante 1P NO 12-24 V targhetta"},
                 {"presa_univ", "Presa universale"},
                 {"bipresa", "Bpresa"},
-                {"predisp_6prese", "Predisposizione per n°6 prese"},
+                {"predisp_6prese", "Predisposizione per nn.6 prese"},
                 {"presa_cmd", "Presa comandata"},
                 {"presa_tv", "Presa TV"},
                 {"presa_sat", "Presa SAT"},
@@ -156,14 +156,14 @@ namespace ImplantiAI
                 {"sensore_ir", "Sensore infrarossi allarme"},
             };
 
-        // ─── Lista chiavi disponibili (per dropdown / autocomplete) ────
+        // --- Lista chiavi disponibili (per dropdown / autocomplete) ----
         public static IEnumerable<string> AvailableSymbols => SymbolDescriptions.Keys;
 
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
         //  METODI Draw* per ciascun simbolo della legenda F-05
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
 
-        // ── Centralino da incasso ──
+        // -- Centralino da incasso --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawPanel(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -180,7 +180,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.1694+pos.X, -0.0601+pos.Y), "INC", 0.0508, layer);
         }
 
-        // ── Contatore di energia attiva ──
+        // -- Contatore di energia attiva --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawEnergyMeter(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -194,7 +194,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0026+pos.X, -0.022+pos.Y), "KWh", 0.04, layer);
         }
 
-        // ── Scatola derivazione linea FEM ──
+        // -- Scatola derivazione linea FEM --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawJunctionBoxFEM(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -206,7 +206,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.2707+pos.X, -0.0002+pos.Y), "INC", 0.0814, layer);
         }
 
-        // ── Scatola derivazione linea Luci ──
+        // -- Scatola derivazione linea Luci --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawJunctionBoxIll(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -218,7 +218,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.1754+pos.X, 0.0015+pos.Y), "ILL", 0.0814, layer);
         }
 
-        // ── Scatola derivazione allarme ──
+        // -- Scatola derivazione allarme --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawJunctionBoxAll(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -231,7 +231,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.2739+pos.X, -0.0086+pos.Y), "ALL", 0.0814, layer);
         }
 
-        // ── Pozzetto di terra ──
+        // -- Pozzetto di terra --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawGroundPit(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -251,7 +251,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.0036+pos.X, -0.1243+pos.Y), "TERRA", 0.035, layer);
         }
 
-        // ── Videocitofono Interno ──
+        // -- Videocitofono Interno --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawVideophoneInt(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -284,7 +284,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.225+pos.X, -0.1179+pos.Y), "P. I.", 0.06, layer);
         }
 
-        // ── Videocitofono Esterno ──
+        // -- Videocitofono Esterno --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawVideophoneExt(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -317,7 +317,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.225+pos.X, -0.1179+pos.Y), "P. E.", 0.06, layer);
         }
 
-        // ── Ventilatore elettrico da parete ──
+        // -- Ventilatore elettrico da parete --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawFan(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -378,7 +378,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.0577+pos.X, -0+pos.Y), P(0.073+pos.X, -0+pos.Y), layer);
         }
 
-        // ── Lampada di emergenza da incasso ──
+        // -- Lampada di emergenza da incasso --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawEmergencyInc(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -399,7 +399,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.0743+pos.X, 0.2196+pos.Y), P(-0.0922+pos.X, 0.0531+pos.Y), layer);
         }
 
-        // ── Suoneria ──
+        // -- Suoneria --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawBell(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -412,7 +412,7 @@ namespace ImplantiAI
             AddArc(tr, btr, P(0.0365+pos.X, 0.0945+pos.Y), 0.0429, 197.23*DEG, 342.77*DEG, layer);
         }
 
-        // ── Pulsante 1P NO 10 A ──
+        // -- Pulsante 1P NO 10 A --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawButton(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -422,7 +422,7 @@ namespace ImplantiAI
             AddCircle(tr, btr, P(-0.0439+pos.X, -0.0335+pos.Y), 0.0747, layer);
         }
 
-        // ── Interruttore 1P 16 A luminoso ──
+        // -- Interruttore 1P 16 A luminoso --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSwitch1P(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -434,7 +434,7 @@ namespace ImplantiAI
             AddCircle(tr, btr, P(-0.0439+pos.X, -0.0335+pos.Y), 0.0747, layer);
         }
 
-        // ── Doppio pulsante 1P NO + 1P NO 10 A ──
+        // -- Doppio pulsante 1P NO + 1P NO 10 A --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawDoubleButton(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -451,7 +451,7 @@ namespace ImplantiAI
             AddCircle(tr, btr, P(0+pos.X, 0.0336+pos.Y), 0.0551, layer);
         }
 
-        // ── Interruttore Bipolare 16A ──
+        // -- Interruttore Bipolare 16A --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSwitch2P(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -461,7 +461,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0045+pos.X, -0.0441+pos.Y), "16A", 0.0511, layer);
         }
 
-        // ── Pulsante 1P NO 12-24 V targhetta ──
+        // -- Pulsante 1P NO 12-24 V targhetta --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawButtonPlate(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -475,7 +475,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(-0.2869+pos.X, 0.1109+pos.Y), P(0.0217+pos.X, 0.1109+pos.Y), layer);
         }
 
-        // ── Presa universale ──
+        // -- Presa universale --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSocketUniv(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -486,7 +486,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0031+pos.X, 0.0976+pos.Y), "UNIV.", 0.0524, layer);
         }
 
-        // ── Bpresa ──
+        // -- Bpresa --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawDoubleSocket(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -497,7 +497,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0031+pos.X, 0.0976+pos.Y), "10/16", 0.0524, layer);
         }
 
-        // ── Predisposizione per n°6 prese ──
+        // -- Predisposizione per nn.6 prese --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSocket6Prep(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -510,7 +510,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0021+pos.X, -0.198+pos.Y), "**", 0.08, layer);
         }
 
-        // ── Presa comandata ──
+        // -- Presa comandata --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSocketCmd(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -524,7 +524,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.078+pos.X, -0.1427+pos.Y), "*", 0.08, layer);
         }
 
-        // ── Presa TV ──
+        // -- Presa TV --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSocketTV(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -536,7 +536,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0441+pos.X, 0.0818+pos.Y), "TV", 0.0642, layer);
         }
 
-        // ── Presa SAT ──
+        // -- Presa SAT --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSocketSAT(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -548,7 +548,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.066+pos.X, 0.0812+pos.Y), "SAT", 0.0642, layer);
         }
 
-        // ── Corpo illuminante a soffitto ──
+        // -- Corpo illuminante a soffitto --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawLightCeiling(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -557,7 +557,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.0693+pos.X, 0.0693+pos.Y), P(-0.0693+pos.X, -0.0693+pos.Y), layer);
         }
 
-        // ── Corpo illuminante a parete ──
+        // -- Corpo illuminante a parete --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawLightWall(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -567,7 +567,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.0903+pos.X, 0.0753+pos.Y), P(0.0903+pos.X, -0.0753+pos.Y), layer);
         }
 
-        // ── Passafilo con serracavo ──
+        // -- Passafilo con serracavo --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawCableGland(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -585,7 +585,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.0987+pos.X, -0.2071+pos.Y), P(0.072+pos.X, -0.1863+pos.Y), layer);
         }
 
-        // ── Indica variazione di quota delpercorso dei cavi elettrici ──
+        // -- Indica variazione di quota delpercorso dei cavi elettrici --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawHeightChange(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -600,7 +600,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.0877+pos.X, 0.5807+pos.Y), "EM", 0.0656, layer);
         }
 
-        // ── Rivelatore GAS ──
+        // -- Rivelatore GAS --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawDetectorGas(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -613,7 +613,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0081+pos.X, 0.0762+pos.Y), "CH4", 0.0656, layer);
         }
 
-        // ── Rivelatore Acqua ──
+        // -- Rivelatore Acqua --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawDetectorWater(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -625,7 +625,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0098+pos.X, 0.0782+pos.Y), "H2O", 0.0656, layer);
         }
 
-        // ── Elettrovalvola ──
+        // -- Elettrovalvola --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSolenoidValve(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -638,7 +638,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.2183+pos.X, -0.0131+pos.Y), "3/4\"", 0.0359, layer);
         }
 
-        // ── Elettrovalvola 3/4" NO 12 Vcc ──
+        // -- Elettrovalvola 3/4" NO 12 Vcc --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSolenoidValveNO(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -654,7 +654,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.124+pos.X, -0.067+pos.Y), "12Vcc", 0.0215, layer);
         }
 
-        // ── Elettrovalvola 3/4" NC 12 Vcc ──
+        // -- Elettrovalvola 3/4" NC 12 Vcc --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSolenoidValveNC(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -668,7 +668,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0212+pos.X, -0.0867+pos.Y), "12Vcc", 0.0215, layer);
         }
 
-        // ── Cronotermostato estraibile 3 moduli ──
+        // -- Cronotermostato estraibile 3 moduli --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawThermostat(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -683,7 +683,7 @@ namespace ImplantiAI
             AddCircle(tr, btr, P(0.0179+pos.X, 0.0242+pos.Y), 0.0161, layer);
         }
 
-        // ── Inseritore parzializzatore allarme ──
+        // -- Inseritore parzializzatore allarme --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawAlarmInserter(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -701,7 +701,7 @@ namespace ImplantiAI
             AddCircle(tr, btr, P(-0.0402+pos.X, 0.0028+pos.Y), 0.0042, layer);
         }
 
-        // ── Centrale di comando allarme ──
+        // -- Centrale di comando allarme --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawAlarmPanel(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -718,7 +718,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0778+pos.X, 0.0327+pos.Y), "A", 0.0724, layer);
         }
 
-        // ── Sirena da esterno ──
+        // -- Sirena da esterno --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSirenExt(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -743,7 +743,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.1156+pos.X, 0.0407+pos.Y), "DA ESTERNO", 0.0423, layer);
         }
 
-        // ── Sirena da interno ──
+        // -- Sirena da interno --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawSirenInt(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -767,7 +767,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(-0.0008+pos.X, -0.1375+pos.Y), "DA INTERNO", 0.0428, layer);
         }
 
-        // ── Contatto magnetico allarme ──
+        // -- Contatto magnetico allarme --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawMagContact(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -784,7 +784,7 @@ namespace ImplantiAI
             AddLine(tr, btr, P(0.1865+pos.X, 0.1794+pos.Y), P(0.1861+pos.X, -0.0382+pos.Y), layer);
         }
 
-        // ── Sensore infrarossi allarme ──
+        // -- Sensore infrarossi allarme --
         // Estratto fedelmente dal DXF F-05 LEGENDA IMPIANTO ELETTRICO
         private static void DrawIRSensor(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer)
@@ -807,7 +807,7 @@ namespace ImplantiAI
             AddText(tr, btr, P(0.0093+pos.X, 0.0648+pos.Y), "I", 0.0344, layer);
             AddText(tr, btr, P(0.071+pos.X, 0.0227+pos.Y), "A", 0.0344, layer);
         }
-        // ─── Simbolo generico (fallback) ───────────────────────────────
+        // --- Simbolo generico (fallback) -------------------------------
         private static void DrawGeneric(Transaction tr, BlockTableRecord btr,
             Point3d pos, string layer, string label)
         {
@@ -816,9 +816,9 @@ namespace ImplantiAI
             AddText(tr, btr, pos, lbl, 0.050, layer);
         }
 
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
         //  HELPERS di disegno (riusati da tutti i metodi Draw*)
-        // ════════════════════════════════════════════════════════════════
+        // ================================================================
 
         public static void AddCircle(Transaction tr, BlockTableRecord btr,
             Point3d c, double r, string layer)
