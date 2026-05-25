@@ -22,7 +22,7 @@ namespace ImplantiAI
 
         // Endpoint su Vercel - non rivela il repository privato
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        private const string CURRENT_VERSION = "2.3";
+        private const string CURRENT_VERSION = "2.4";
         private const string BUNDLE_PATH = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
         private static bool _updateChecked = false;
 
