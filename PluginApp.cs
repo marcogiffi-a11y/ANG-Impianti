@@ -58,10 +58,10 @@ namespace ImplantiAI
                 Task.Run(async () =>
                 {
                     try { await CheckForUpdatesAsync(doc); }
-                    catch (Exception ex) { Logger.Log("Updater: " + ex.Message); }
+                    catch (System.Exception ex) { Logger.Log("Updater: " + ex.Message); }
                 });
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 doc?.Editor.WriteMessage("\n✗ Errore avvio: " + ex.Message + "\n");
             }
@@ -111,7 +111,7 @@ namespace ImplantiAI
                 if (result == DialogResult.Yes)
                     await DownloadAndInstallAsync(downloadUrl);
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 doc?.Editor.WriteMessage($"\nANG: errore controllo update: {ex.Message}\n");
                 Logger.Log("UpdateCheck: " + ex.Message);
@@ -152,7 +152,7 @@ namespace ImplantiAI
 
                 Autodesk.AutoCAD.ApplicationServices.Application.Quit();
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 Logger.Log("Install: " + ex.Message);
                 MessageBox.Show("Errore: " + ex.Message, "Errore aggiornamento",
@@ -164,7 +164,7 @@ namespace ImplantiAI
         {
             Autodesk.AutoCAD.ApplicationServices.Application.Idle -= OnIdle;
             try { RibbonManager.CreateRibbon(); }
-            catch (Exception ex) { Logger.Log("Ribbon: " + ex.Message); }
+            catch (System.Exception ex) { Logger.Log("Ribbon: " + ex.Message); }
         }
 
         public void Terminate() => MemoryDatabase.Instance.Save();
