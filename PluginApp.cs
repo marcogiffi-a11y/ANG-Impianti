@@ -87,7 +87,7 @@ namespace ImplantiAI
                 if (!urlMatch.Success) return;
                 var downloadUrl = urlMatch.Groups[1].Value;
 
-                Autodesk.AutoCAD.ApplicationServices.Application.Invoke((Action)(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
                 {
                     var result = MessageBox.Show(
                         "Nuova versione ANG-Impianti disponibile!\n\n" +
@@ -114,7 +114,7 @@ namespace ImplantiAI
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
 
-                Autodesk.AutoCAD.ApplicationServices.Application.Invoke((Action)(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
                     MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
                         "Aggiornamento", MessageBoxButtons.OK, MessageBoxIcon.Information)));
 
@@ -139,13 +139,13 @@ namespace ImplantiAI
                     Verb = "runas"
                 });
 
-                Autodesk.AutoCAD.ApplicationServices.Application.Invoke((Action)(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
                     Autodesk.AutoCAD.ApplicationServices.Application.Quit()));
             }
             catch (System.Exception ex)
             {
                 Logger.Log("Update install: " + ex.Message);
-                Autodesk.AutoCAD.ApplicationServices.Application.Invoke((Action)(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke((Action)(() =>
                     MessageBox.Show("Errore: " + ex.Message, "Errore aggiornamento",
                         MessageBoxButtons.OK, MessageBoxIcon.Error)));
             }
