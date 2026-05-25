@@ -1,4 +1,4 @@
-﻿﻿using Autodesk.AutoCAD.ApplicationServices;
+﻿﻿﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -165,6 +165,23 @@ namespace ImplantiAI
                 ed.WriteMessage("✓ Regola salvata! Verrà applicata nei prossimi progetti.\n");
             }
             catch (System.Exception ex) { ed.WriteMessage("\n✗ " + ex.Message + "\n"); }
+        }
+
+        // ── PULISCI REGOLE (emergenza) ───────────────────────
+        [CommandMethod("PULISCI_REGOLE", CommandFlags.Modal)]
+        public void PulisciRegole()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var ed = doc.Editor;
+            try
+            {
+                var rules = MemoryDatabase.Instance.GetRules();
+                int n = rules.Count;
+                rules.Clear();
+                MemoryDatabase.Instance.Save();
+                ed.WriteMessage("\n[OK] " + n + " regole cancellate. Riparti pulito.\n");
+            }
+            catch (System.Exception ex) { ed.WriteMessage("\n[ERR] " + ex.Message + "\n"); }
         }
 
         // ── MOSTRA REGOLE ────────────────────────────────────
