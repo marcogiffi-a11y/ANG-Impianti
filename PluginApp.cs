@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using Autodesk.AutoCAD.Runtime;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Windows;
 using System;
 using System.Drawing;
@@ -21,7 +21,7 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        public  const string CURRENT_VERSION = "2.14";
+        public  const string CURRENT_VERSION = "2.15";
         private static bool _updateChecked = false;
         private static string _acadExePath = "";
 
@@ -81,29 +81,54 @@ namespace ImplantiAI
         {
             try
             {
+                Logger.Log("CheckForUpdates: start");
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti/" + CURRENT_VERSION);
                 client.Timeout = TimeSpan.FromSeconds(15);
                 var json = client.GetStringAsync(UPDATE_URL).GetAwaiter().GetResult();
+                Logger.Log("CheckForUpdates: endpoint response received, " + json.Length + " chars");
                 var verMatch = Regex.Match(json, "\"version\":\\s*\"([^\"]+)\"");
                 var urlMatch = Regex.Match(json, "\"url\":\\s*\"([^\"]+)\"");
-                if (!verMatch.Success) return;
+                if (!verMatch.Success) { Logger.Log("CheckForUpdates: no version in response"); return; }
                 var latest = verMatch.Groups[1].Value.Trim();
                 var downloadUrl = urlMatch.Success ? urlMatch.Groups[1].Value : "";
+                Logger.Log("CheckForUpdates: latest=" + latest + " current=" + CURRENT_VERSION);
                 if (latest == CURRENT_VERSION) return;
 
-                var result = MessageBox.Show(
-                    "ANG-Impianti: aggiornamento disponibile!\n\nVersione installata: v" +
-                    CURRENT_VERSION + "\nVersione disponibile: v" + latest +
-                    "\n\nAggiornare adesso?\n(AutoCAD si chiudera e riaprira automaticamente)",
-                    "Aggiornamento ANG-Impianti",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information);
-
-                if (result == DialogResult.Yes && !string.IsNullOrEmpty(downloadUrl))
-                    Task.Run(() => InstallUpdate(downloadUrl));
+                // v2.15: dispatcher al UI thread per popup + install sincroni
+                var dispatcher = System.Windows.Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    Logger.Log("CheckForUpdates: WPF dispatcher null, fallback to current thread");
+                    DoUpdateDialog(latest, downloadUrl);
+                }
+                else
+                {
+                    Logger.Log("CheckForUpdates: dispatching to UI thread");
+                    dispatcher.Invoke(() => DoUpdateDialog(latest, downloadUrl));
+                }
             }
-            catch (System.Exception ex) { Logger.Log("UpdateCheck: " + ex.Message); }
+            catch (System.Exception ex) { Logger.Log("UpdateCheck error: " + ex.Message); }
+        }
+
+        // v2.15: popup + install eseguiti sincronamente (su UI thread quando possibile)
+        private void DoUpdateDialog(string latest, string downloadUrl)
+        {
+            Logger.Log("DoUpdateDialog: show MessageBox");
+            var result = MessageBox.Show(
+                "ANG-Impianti: aggiornamento disponibile!\n\nVersione installata: v" +
+                CURRENT_VERSION + "\nVersione disponibile: v" + latest +
+                "\n\nAggiornare adesso?\n(AutoCAD si chiudera e riaprira automaticamente)",
+                "Aggiornamento ANG-Impianti",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+            Logger.Log("DoUpdateDialog: user clicked " + result);
+
+            if (result == DialogResult.Yes && !string.IsNullOrEmpty(downloadUrl))
+            {
+                Logger.Log("DoUpdateDialog: calling InstallUpdate SYNCHRONOUSLY");
+                InstallUpdate(downloadUrl);  // sincrono, sul thread corrente (UI thread)
+            }
         }
 
         // ================================================================
@@ -117,9 +142,11 @@ namespace ImplantiAI
         // ================================================================
         private void InstallUpdate(string downloadUrl)
         {
+            Logger.Log("InstallUpdate: ENTRY url=" + downloadUrl);
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
+                Logger.Log("InstallUpdate: downloading to " + tempZip);
                 var bundlePath = @"C:\ProgramData\Autodesk\ApplicationPlugins\ANGImpianti.bundle";
                 var pluginsPath = @"C:\ProgramData\Autodesk\ApplicationPlugins";
 
@@ -129,6 +156,7 @@ namespace ImplantiAI
                 client.Timeout = TimeSpan.FromMinutes(5);
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
+                Logger.Log("InstallUpdate: downloaded " + bytes.Length + " bytes");
 
                 // 2) Feedback DOPO il download (non blocca il download stesso)
                 MessageBox.Show(
@@ -208,6 +236,7 @@ namespace ImplantiAI
                     "Start-Sleep -Seconds 5"
                 });
                 File.WriteAllText(ps1Path, ps1);
+                Logger.Log("InstallUpdate: wrote ps1 script to " + ps1Path + " (" + ps1.Length + " chars)");
 
                 // 4) Esegui PowerShell con finestra VISIBILE (Normal style)
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -218,8 +247,10 @@ namespace ImplantiAI
                     Verb = "runas"
                 });
 
+                Logger.Log("InstallUpdate: PowerShell launched, calling Application.Quit");
                 // 5) Chiudi AutoCAD (lo script PS aspetta 5s e poi killa il resto)
                 Autodesk.AutoCAD.ApplicationServices.Application.Quit();
+                Logger.Log("InstallUpdate: Application.Quit returned (should never see this)");
             }
             catch (System.Exception ex)
             {
