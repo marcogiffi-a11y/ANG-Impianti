@@ -132,7 +132,7 @@ namespace ImplantiAI
                     "if (Test-Path '" + pluginsPath + "\\ANGImpianti') { Rename-Item '" + pluginsPath + "\\ANGImpianti' 'ANGImpianti.bundle' }",
                     "Remove-Item '" + tempZip + "' -Force -ErrorAction SilentlyContinue",
                     "Write-Host 'Installazione completata! Riapro AutoCAD...'",
-                    "$acadPaths = @('${env:ProgramFiles}\Autodesk\AutoCAD 2025\acad.exe','${env:ProgramFiles}\Autodesk\AutoCAD 2024\acad.exe'); foreach($p in $acadPaths){ if(Test-Path $p){ Start-Process $p; break } }"
+                    "$p1 = $env:ProgramFiles + '\\Autodesk\\AutoCAD 2025\\acad.exe'; $p2 = $env:ProgramFiles + '\\Autodesk\\AutoCAD 2024\\acad.exe'; if(Test-Path $p1){Start-Process $p1}elseif(Test-Path $p2){Start-Process $p2}"
                 });
                 File.WriteAllText(ps1Path, ps1);
 
