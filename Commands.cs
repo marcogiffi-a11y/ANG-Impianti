@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.ApplicationServices;
+﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -314,10 +314,14 @@ namespace ImplantiAI
 
         private List<RoomData> DetectRoomsFromDrawing(Database db)
         {
+            // v2.11: enrichment con point-in-polygon per centro/area/bbox reali
             var rooms = new List<RoomData>();
             var keywords = new[] { "camera", "bagno", "cucina", "soggiorno",
                 "corridoio", "disimpegno", "ingresso", "studio", "wc",
                 "locale", "ripostiglio", "lavanderia" };
+
+            var roomTexts = new List<(string text, double x, double y)>();
+            var closedPolys = new List<(Autodesk.AutoCAD.Geometry.Point2d[] verts, double area)>();
 
             using (var tr = db.TransactionManager.StartOpenCloseTransaction())
             {
@@ -331,42 +335,48 @@ namespace ImplantiAI
                     var e = tr.GetObject(id, OpenMode.ForRead) as Entity;
                     if (e == null) continue;
 
-                    // Metodo 1: Layer VANO_* (da DISEGNA_VANO)
-                    if (e.Layer.StartsWith("VANO_") && e is Polyline poly && poly.Closed)
+                    // Metodo 1 (preservato): Layer VANO_* da DISEGNA_VANO
+                    if (e.Layer.StartsWith("VANO_") && e is Polyline polyVano && polyVano.Closed)
                     {
                         string tipo = e.Layer.Replace("VANO_", "").ToLower();
-                        double area = Math.Abs(poly.Area) / 1_000_000;
+                        double area = Math.Abs(polyVano.Area) / 1_000_000;
                         double cx = 0, cy = 0;
                         double minX = double.MaxValue, minY = double.MaxValue;
                         double maxX = double.MinValue, maxY = double.MinValue;
-
-                        for (int i = 0; i < poly.NumberOfVertices; i++)
+                        for (int i2 = 0; i2 < polyVano.NumberOfVertices; i2++)
                         {
-                            var pt = poly.GetPoint2dAt(i);
+                            var pt = polyVano.GetPoint2dAt(i2);
                             cx += pt.X; cy += pt.Y;
                             minX = Math.Min(minX, pt.X); minY = Math.Min(minY, pt.Y);
                             maxX = Math.Max(maxX, pt.X); maxY = Math.Max(maxY, pt.Y);
                         }
-                        cx /= poly.NumberOfVertices;
-                        cy /= poly.NumberOfVertices;
-
+                        cx /= polyVano.NumberOfVertices;
+                        cy /= polyVano.NumberOfVertices;
                         rooms.Add(new RoomData
                         {
                             Name = char.ToUpper(tipo[0]) + tipo.Substring(1),
                             RoomType = tipo, Area = area,
                             CenterX = cx, CenterY = cy,
-                            MinX = minX, MinY = minY,
-                            MaxX = maxX, MaxY = maxY,
+                            MinX = minX, MinY = minY, MaxX = maxX, MaxY = maxY,
                             Width = maxX - minX, Height = maxY - minY
                         });
                         continue;
                     }
 
-                    // Metodo 2: Testi nel disegno
+                    // Raccolgo TUTTE le polilinee chiuse del disegno
+                    if (e is Polyline ply && ply.Closed && ply.NumberOfVertices >= 3)
+                    {
+                        var verts = new Autodesk.AutoCAD.Geometry.Point2d[ply.NumberOfVertices];
+                        for (int i2 = 0; i2 < ply.NumberOfVertices; i2++)
+                            verts[i2] = ply.GetPoint2dAt(i2);
+                        closedPolys.Add((verts, Math.Abs(ply.Area)));
+                    }
+
+                    // Raccolgo i testi con keyword "camera"/"bagno"/...
                     string text = ""; double tx = 0, ty = 0;
                     if (e is MText mt)
                     {
-                        text = mt.Contents.Replace("\\A1;","").Replace("\\P"," ").Trim();
+                        text = mt.Contents.Replace("\\A1;", "").Replace("\\P", " ").Trim();
                         tx = mt.Location.X; ty = mt.Location.Y;
                     }
                     else if (e is DBText dt)
@@ -375,27 +385,91 @@ namespace ImplantiAI
                         tx = dt.Position.X; ty = dt.Position.Y;
                     }
                     if (string.IsNullOrEmpty(text) || text.Length < 3) continue;
-
                     bool isRoom = false;
                     foreach (var kw in keywords)
                         if (text.ToLower().Contains(kw)) { isRoom = true; break; }
-
-                    if (isRoom && !rooms.Exists(r =>
-                        Math.Abs(r.CenterX - tx) < 500 &&
-                        Math.Abs(r.CenterY - ty) < 500))
-                    {
-                        rooms.Add(new RoomData
-                        {
-                            Name = text.Trim(),
-                            RoomType = GetRoomType(text),
-                            Area = GetEstimatedArea(text),
-                            CenterX = tx, CenterY = ty
-                        });
-                    }
+                    if (isRoom) roomTexts.Add((text, tx, ty));
                 }
                 tr.Commit();
             }
+
+            Logger.Log("DetectRooms: " + roomTexts.Count + " testi-stanza, " +
+                       closedPolys.Count + " polilinee chiuse");
+
+            // PASSO 2: per ogni testo, trova polilinea piu piccola che lo contiene
+            foreach (var (text, tx, ty) in roomTexts)
+            {
+                Autodesk.AutoCAD.Geometry.Point2d[]? bestVerts = null;
+                double bestArea = double.MaxValue;
+                foreach (var (verts, area) in closedPolys)
+                {
+                    if (area <= 0.1) continue;
+                    if (!IsPointInsidePolygon(verts, tx, ty)) continue;
+                    if (area < bestArea) { bestArea = area; bestVerts = verts; }
+                }
+
+                if (bestVerts != null)
+                {
+                    double cx = 0, cy = 0;
+                    double minX = double.MaxValue, minY = double.MaxValue;
+                    double maxX = double.MinValue, maxY = double.MinValue;
+                    foreach (var p in bestVerts)
+                    {
+                        cx += p.X; cy += p.Y;
+                        minX = Math.Min(minX, p.X); minY = Math.Min(minY, p.Y);
+                        maxX = Math.Max(maxX, p.X); maxY = Math.Max(maxY, p.Y);
+                    }
+                    cx /= bestVerts.Length; cy /= bestVerts.Length;
+
+                    double tol = Math.Max(0.5, Math.Min(maxX - minX, maxY - minY) * 0.1);
+                    if (rooms.Exists(r => Math.Abs(r.CenterX - cx) < tol &&
+                                          Math.Abs(r.CenterY - cy) < tol)) continue;
+
+                    rooms.Add(new RoomData
+                    {
+                        Name = text.Trim(),
+                        RoomType = GetRoomType(text),
+                        Area = bestArea,
+                        CenterX = cx, CenterY = cy,
+                        MinX = minX, MinY = minY, MaxX = maxX, MaxY = maxY,
+                        Width = maxX - minX, Height = maxY - minY
+                    });
+                    Logger.Log("  ROOM(poly) " + text + " centro=(" + cx.ToString("F1") +
+                               "," + cy.ToString("F1") + ") area=" + bestArea.ToString("F1"));
+                }
+                else
+                {
+                    if (rooms.Exists(r => Math.Abs(r.CenterX - tx) < 2.0 &&
+                                          Math.Abs(r.CenterY - ty) < 2.0)) continue;
+                    rooms.Add(new RoomData
+                    {
+                        Name = text.Trim(),
+                        RoomType = GetRoomType(text),
+                        Area = GetEstimatedArea(text),
+                        CenterX = tx, CenterY = ty
+                    });
+                    Logger.Log("  ROOM(text-only) " + text + " centro=(" + tx.ToString("F1") +
+                               "," + ty.ToString("F1") + ")");
+                }
+            }
             return rooms;
+        }
+
+        // Helper: point-in-polygon (ray casting)
+        private bool IsPointInsidePolygon(Autodesk.AutoCAD.Geometry.Point2d[] verts, double x, double y)
+        {
+            bool inside = false;
+            int n = verts.Length;
+            int j = n - 1;
+            for (int i = 0; i < n; i++)
+            {
+                if (((verts[i].Y > y) != (verts[j].Y > y)) &&
+                    (x < (verts[j].X - verts[i].X) * (y - verts[i].Y) /
+                         (verts[j].Y - verts[i].Y) + verts[i].X))
+                    inside = !inside;
+                j = i;
+            }
+            return inside;
         }
 
         private string GetRoomType(string t)
