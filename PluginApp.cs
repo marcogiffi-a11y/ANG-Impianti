@@ -1,4 +1,4 @@
-﻿﻿using Autodesk.AutoCAD.Runtime;
+﻿﻿﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.Windows;
 using System;
 using System.Drawing;
@@ -21,8 +21,9 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        public  const string CURRENT_VERSION = "2.8";
+        public  const string CURRENT_VERSION = "2.9";
         private static bool _updateChecked = false;
+        private static string _acadExePath = "";
 
         public void Initialize()
         {
@@ -31,6 +32,10 @@ namespace ImplantiAI
             if (doc == null) return;
             try
             {
+                // Memorizza il path dell'AutoCAD corrente per il restart dopo update
+                try {
+                    _acadExePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName ?? "";
+                } catch { _acadExePath = ""; }
                 MemoryDatabase.Instance.Initialize();
                 Palette = new PaletteSet("ANG-Impianti AI",
                     new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890"));
@@ -179,14 +184,16 @@ namespace ImplantiAI
                     "}",
                     "Remove-Item '" + tempZip + "' -Force -ErrorAction SilentlyContinue",
                     "Write-Host '[5/5] Riavvio AutoCAD...'",
-                    "$candidates = @(",
+                    // Preferisci l'esatto path AutoCAD che era in esecuzione (no Electrical/Map/MEP per errore)
+                    "$preferred = '" + _acadExePath.Replace("\\", "\\\\") + "'",
+                    "$candidates = @($preferred,",
                     "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2026\\acad.exe\",",
                     "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2025\\acad.exe\",",
                     "    \"$env:ProgramFiles\\Autodesk\\AutoCAD 2024\\acad.exe\"",
                     ")",
                     "$started = $false",
                     "foreach ($p in $candidates) {",
-                    "    if (Test-Path $p) {",
+                    "    if ($p -and (Test-Path $p)) {",
                     "        Start-Process $p",
                     "        Write-Host ('      Avviato: ' + $p) -ForegroundColor Green",
                     "        $started = $true",
