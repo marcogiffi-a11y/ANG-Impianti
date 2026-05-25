@@ -18,6 +18,14 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
+    - name: Extract Version
+      shell: pwsh
+      run: |
+        $version = Get-Content VERSION -Raw
+        $version = $version.Trim()
+        echo "PLUGIN_VERSION=$version" >> $env:GITHUB_ENV
+        Write-Host "Plugin version: $version"
+
     - name: Restore
       run: dotnet restore ImplantiAI.csproj
 
@@ -34,14 +42,12 @@ jobs:
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2025/" -ErrorAction SilentlyContinue
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2026/" -ErrorAction SilentlyContinue
         Copy-Item "PackageContents.xml" "ANGImpianti.bundle/"
-        Write-Host "Bundle creato!"
 
-    - name: Crea ZIP installabile
+    - name: Crea ZIP
       shell: pwsh
       run: |
         New-Item -Force -ItemType Directory "release"
         Compress-Archive -Path "ANGImpianti.bundle" -DestinationPath "release/ANGImpianti.zip"
-        Write-Host "ZIP creato!"
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -52,17 +58,9 @@ jobs:
     - name: Crea Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v1.0.${{ github.run_number }}
-        name: "ANG-Impianti AI v1.0.${{ github.run_number }}"
-        body: |
-          ## ANG-Impianti AI - Installazione
-
-          ### Come installare:
-          1. Scarica `ANGImpianti.zip`
-          2. Decomprimi il file
-          3. Copia la cartella `ANGImpianti.bundle` in:
-             `C:\ProgramData\Autodesk\ApplicationPlugins\`
-          4. Apri AutoCAD — il plugin si carica automaticamente!
+        tag_name: v${{ env.PLUGIN_VERSION }}
+        name: "ANG-Impianti AI v${{ env.PLUGIN_VERSION }}"
+        body: "Aggiornamento automatico ANG-Impianti AI"
         files: release/ANGImpianti.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
