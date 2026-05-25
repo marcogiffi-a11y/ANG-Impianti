@@ -74,16 +74,16 @@ namespace ImplantiAI
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti-AutoUpdater");
                 client.Timeout = TimeSpan.FromSeconds(10);
 
-                var url = "https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest";
-                var json = await client.GetStringAsync(url);
+                var json = await client.GetStringAsync(
+                    "https://api.github.com/repos/" + GITHUB_REPO + "/releases/latest");
 
-                var tagMatch = Regex.Match(json, ""tag_name":\\s*"([^"]+)"");
+                var tagMatch = Regex.Match(json, "\"tag_name\":\\s*\"([^\"]+)\"");
                 if (!tagMatch.Success) return;
 
                 var latestTag = tagMatch.Groups[1].Value.TrimStart('v');
                 if (latestTag == CURRENT_VERSION) return;
 
-                var urlMatch = Regex.Match(json, ""browser_download_url":\\s*"([^"]+\\.zip)"");
+                var urlMatch = Regex.Match(json, "\"browser_download_url\":\\s*\"([^\"]+\\.zip)\"");
                 if (!urlMatch.Success) return;
                 var downloadUrl = urlMatch.Groups[1].Value;
 
@@ -112,8 +112,7 @@ namespace ImplantiAI
         {
             try
             {
-                var tempZip = System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(), "ANGImpianti_update.zip");
+                var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
 
                 Autodesk.AutoCAD.ApplicationServices.Application.Invoke((Action)(() =>
                     MessageBox.Show("Download in corso...\nAutoCAD si chiuderà al termine.",
@@ -124,18 +123,14 @@ namespace ImplantiAI
                 var bytes = await client.GetByteArrayAsync(downloadUrl);
                 File.WriteAllBytes(tempZip, bytes);
 
-                var scriptLines = new string[]
-                {
-                    "@echo off",
-                    "timeout /t 3 /nobreak >nul",
-                    "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"",
-                    "powershell -Command \"Expand-Archive -Path '" + tempZip + "' -DestinationPath 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\' -Force\"",
-                    "del \"" + tempZip + "\"",
-                    "start acad.exe"
-                };
-                var scriptPath = System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(), "ang_update.bat");
-                File.WriteAllLines(scriptPath, scriptLines);
+                var scriptPath = Path.Combine(Path.GetTempPath(), "ang_update.bat");
+                File.WriteAllText(scriptPath,
+                    "@echo off\r\n" +
+                    "timeout /t 3 /nobreak >nul\r\n" +
+                    "if exist \"" + BUNDLE_PATH + "\" rmdir /s /q \"" + BUNDLE_PATH + "\"\r\n" +
+                    "powershell -Command \"Expand-Archive -Path '" + tempZip + "' -DestinationPath 'C:\\ProgramData\\Autodesk\\ApplicationPlugins\\' -Force\"\r\n" +
+                    "del \"" + tempZip + "\"\r\n" +
+                    "start acad.exe\r\n");
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
