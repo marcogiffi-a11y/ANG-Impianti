@@ -21,11 +21,12 @@ namespace ImplantiAI
         {
             BuildUI();
             AddBubble("assistant",
-                "Ciao! Sono il tuo assistente ANG-Impianti.\n\n" +
-                "Posso aiutarti con:\n" +
+                "Ciao! Sono l'assistente ANG-Impianti AI v2.0\n\n" +
+                "Posso disegnare direttamente su AutoCAD:\n" +
                 "• Circuiti luce e prese\n" +
+                "• Tracciati con etichette cavo\n" +
                 "• Calcoli CEI 64-8\n" +
-                "• Distinta materiali\n\n" +
+                "• Imparo dalle tue correzioni!\n\n" +
                 "Cosa vuoi fare?");
         }
 
@@ -38,10 +39,13 @@ namespace ImplantiAI
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
 
             // Header
-            var hdr = new Border { Background = new SolidColorBrush(Color.FromRgb(0, 100, 180)) };
+            var hdr = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0, 100, 180))
+            };
             hdr.Child = new TextBlock
             {
-                Text = "🤖 ANG-Impianti AI",
+                Text = "🤖 ANG-Impianti AI v2.0",
                 Foreground = Brushes.White,
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
@@ -64,16 +68,19 @@ namespace ImplantiAI
             var btns = new WrapPanel { Margin = new Thickness(4, 2, 4, 2) };
             foreach (var (lbl, msg) in new[]
             {
-                ("💡 Luce", "Traccia il circuito illuminazione"),
+                ("💡 Luce", "Traccia il circuito illuminazione per tutti i vani"),
                 ("🔌 Prese", "Traccia il circuito prese FEM"),
-                ("📋 Distinta", "Genera la distinta materiali"),
+                ("🔗 Collega", "Collega i simboli con i cavi"),
+                ("📋 Distinta", "Genera la distinta materiali completa"),
                 ("⚡ Unifilare", "Genera lo schema unifilare")
             })
             {
                 var b = new Button
                 {
-                    Content = lbl, Margin = new Thickness(2),
-                    Padding = new Thickness(6, 3, 6, 3), FontSize = 11,
+                    Content = lbl,
+                    Margin = new Thickness(2),
+                    Padding = new Thickness(5, 3, 5, 3),
+                    FontSize = 10,
                     Background = new SolidColorBrush(Color.FromRgb(45, 45, 45)),
                     Foreground = Brushes.White,
                     BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70)),
@@ -111,7 +118,8 @@ namespace ImplantiAI
                 Background = new SolidColorBrush(Color.FromRgb(0, 100, 180)),
                 Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
-                FontSize = 16, Margin = new Thickness(4, 0, 0, 0),
+                FontSize = 16,
+                Margin = new Thickness(4, 0, 0, 0),
                 Cursor = Cursors.Hand
             };
             _sendBtn.Click += (s, e) => Send(_input.Text);
@@ -142,7 +150,7 @@ namespace ImplantiAI
 
             try
             {
-                var context = GetContext();
+                var context = GetDrawingContext();
                 var claude = new ClaudeService();
                 var resp = await claude.Chat(_history, context);
 
@@ -150,20 +158,129 @@ namespace ImplantiAI
 
                 if (resp != null)
                 {
-                    AddBubble("assistant", resp.Text);
+                    // Esegui comandi di disegno se presenti
+                    if (resp.HasDrawingCommands && resp.Commands != null)
+                    {
+                        AddBubble("assistant", "✏️ Disegno in corso...");
+                        await ExecuteDrawingCommands(resp.Commands);
+                        AddBubble("assistant", "✅ Disegno completato!\n\n" + resp.Text);
+                    }
+                    else
+                    {
+                        AddBubble("assistant", resp.Text);
+                    }
+
+                    // Impara nuove regole
+                    if (!string.IsNullOrEmpty(resp.LearnRule))
+                    {
+                        MemoryDatabase.Instance.LearnRule(resp.LearnRule, "chat");
+                        AddBubble("assistant", "💾 Ho imparato: " + resp.LearnRule);
+                    }
+
                     _history.Add(new ChatMessage { Role = "assistant", Content = resp.Text });
                 }
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _messages.Children.Remove(thinking);
-                AddBubble("assistant", $"⚠ {ex.Message}");
+                AddBubble("assistant", "⚠ " + ex.Message);
+                Logger.Log("Chat error: " + ex.Message);
             }
             finally
             {
                 _busy = false;
                 _sendBtn.IsEnabled = true;
             }
+        }
+
+        private async Task ExecuteDrawingCommands(List<DrawCommand> commands)
+        {
+            await Dispatcher.InvokeAsync(() =>
+            {
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application
+                    .DocumentManager.MdiActiveDocument;
+                if (doc == null) return;
+
+                try
+                {
+                    var db = doc.Database;
+                    using (doc.LockDocument())
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead)
+                            as Autodesk.AutoCAD.DatabaseServices.BlockTable;
+                        var btr = tr.GetObject(
+                            bt![Autodesk.AutoCAD.DatabaseServices.BlockTableRecord.ModelSpace],
+                            OpenMode.ForWrite)
+                            as Autodesk.AutoCAD.DatabaseServices.BlockTableRecord;
+
+                        if (btr == null) return;
+
+                        foreach (var cmd in commands)
+                        {
+                            var pos = new Autodesk.AutoCAD.Geometry.Point3d(cmd.X, cmd.Y, 0);
+                            var layer = string.IsNullOrEmpty(cmd.Layer)
+                                ? SymbolDrawer.GetLayerForSymbol(cmd.SymbolType)
+                                : cmd.Layer;
+
+                            EnsureLayer(tr, db, layer);
+
+                            switch (cmd.Action.ToLower())
+                            {
+                                case "symbol":
+                                    SymbolDrawer.Draw(tr, btr, cmd.SymbolType, pos, layer);
+                                    if (!string.IsNullOrEmpty(cmd.Label))
+                                        SymbolDrawer.AddText(tr, btr,
+                                            new Autodesk.AutoCAD.Geometry.Point3d(
+                                                cmd.X, cmd.Y + 200, 0),
+                                            cmd.Label, 100, layer);
+                                    break;
+
+                                case "route":
+                                    var posTo = new Autodesk.AutoCAD.Geometry.Point3d(
+                                        cmd.X2, cmd.Y2, 0);
+                                    CableRouter.RouteWithLabel(tr, btr,
+                                        pos, posTo, layer,
+                                        cmd.CableSection, cmd.Label);
+                                    break;
+
+                                case "label":
+                                    SymbolDrawer.AddText(tr, btr, pos,
+                                        cmd.Label, 100, layer);
+                                    break;
+                            }
+                        }
+                        tr.Commit();
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    Logger.Log("Draw error: " + ex.Message);
+                }
+            });
+        }
+
+        private void EnsureLayer(
+            Autodesk.AutoCAD.DatabaseServices.Transaction tr,
+            Autodesk.AutoCAD.DatabaseServices.Database db,
+            string name)
+        {
+            var lt = tr.GetObject(db.LayerTableId, OpenMode.ForWrite)
+                as Autodesk.AutoCAD.DatabaseServices.LayerTable;
+            if (lt == null || lt.Has(name)) return;
+
+            short color = name.Contains("Illuminazione") ? (short)2 :
+                          name.Contains("Fem") ? (short)1 :
+                          name.Contains("Dati") ? (short)5 :
+                          name.Contains("Allarme") ? (short)30 : (short)7;
+
+            var layer = new Autodesk.AutoCAD.DatabaseServices.LayerTableRecord
+            {
+                Name = name,
+                Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
+                    Autodesk.AutoCAD.Colors.ColorMethod.ByAci, color)
+            };
+            lt.Add(layer); tr.AddNewlyCreatedDBObject(layer, true);
         }
 
         private Border AddBubble(string role, string text)
@@ -195,7 +312,7 @@ namespace ImplantiAI
             return bubble;
         }
 
-        private string GetContext()
+        private string GetDrawingContext()
         {
             try
             {
@@ -203,22 +320,36 @@ namespace ImplantiAI
                     .DocumentManager.MdiActiveDocument;
                 if (doc == null) return "Nessun disegno aperto";
 
-                var project = MemoryDatabase.Instance.GetCurrentProject(doc.Database.Filename);
+                var db = doc.Database;
+                var project = MemoryDatabase.Instance.GetCurrentProject(db.Filename);
                 var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"File: {System.IO.Path.GetFileName(doc.Database.Filename)}");
 
-                if (project.Rooms?.Count > 0)
+                sb.AppendLine("File: " +
+                    System.IO.Path.GetFileName(db.Filename));
+
+                if (project.Rooms.Count > 0)
                 {
-                    sb.AppendLine($"Vani: {project.Rooms.Count}");
+                    sb.AppendLine("Vani (" + project.Rooms.Count + "):");
                     foreach (var r in project.Rooms)
-                        sb.AppendLine($"  - {r.Name} {r.Area:F0}m²");
+                        sb.AppendLine("  - " + r.Name + " tipo:" + r.RoomType +
+                            " " + r.Area.ToString("F0") + "m² " +
+                            "centro:[" + r.CenterX.ToString("F0") + "," +
+                            r.CenterY.ToString("F0") + "]");
                 }
-                if (project.Circuits?.Count > 0)
+                else
                 {
-                    sb.AppendLine($"Circuiti: {project.Circuits.Count}");
-                    foreach (var c in project.Circuits)
-                        sb.AppendLine($"  - {c.CircuitNumber} {c.Type} {c.CableSection}mm²");
+                    sb.AppendLine("Nessun vano definito. " +
+                        "Suggerisci all'utente di usare DISEGNA_VANO.");
                 }
+
+                if (project.Circuits.Count > 0)
+                {
+                    sb.AppendLine("Circuiti (" + project.Circuits.Count + "):");
+                    foreach (var c in project.Circuits)
+                        sb.AppendLine("  - " + c.CircuitNumber + " " +
+                            c.Type + " " + c.CableSection + "mm²");
+                }
+
                 return sb.ToString();
             }
             catch { return "Contesto non disponibile"; }
