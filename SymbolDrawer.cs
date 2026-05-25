@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.DatabaseServices;
+﻿﻿using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
@@ -855,9 +855,28 @@ namespace ImplantiAI
                 Height = h,
                 HorizontalMode = TextHorizontalMode.TextCenter,
                 AlignmentPoint = pos,
-                Layer = layer
+                Layer = layer,
+                // v2.15: usa TextStyle TrueType per supportare unicode (es. m^2 = mm^2)
+                TextStyleId = GetOrCreateAngTextStyle(tr, btr.Database)
             };
             btr.AppendEntity(t); tr.AddNewlyCreatedDBObject(t, true);
+        }
+
+        // v2.15: crea (o riusa) un TextStyle "ANG_TEXT" con font Arial TrueType
+        private static ObjectId GetOrCreateAngTextStyle(Transaction tr, Database db)
+        {
+            var tt = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
+            if (tt.Has("ANG_TEXT")) return tt["ANG_TEXT"];
+            tt.UpgradeOpen();
+            var style = new TextStyleTableRecord
+            {
+                Name = "ANG_TEXT",
+                Font = new Autodesk.AutoCAD.GraphicsInterface.FontDescriptor(
+                    "Arial", false, false, 0, 34)
+            };
+            var id = tt.Add(style);
+            tr.AddNewlyCreatedDBObject(style, true);
+            return id;
         }
 
         public static void DrawRect(Transaction tr, BlockTableRecord btr,
