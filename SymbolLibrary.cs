@@ -402,62 +402,71 @@ namespace ImplantiAI
             Bitmap? icon = null;
             ObjectId blockId = ObjectId.Null;
 
-            try
-            {
-                // 1) Crea blocco + clona entità
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
-                    var btr = new BlockTableRecord { Name = blockName };
-                    blockId = bt.Add(btr);
-                    tr.AddNewlyCreatedDBObject(btr, true);
-                    var idColl = new ObjectIdCollection(ids.ToArray());
-                    var mapping = new IdMapping();
-                    db.DeepCloneObjects(idColl, blockId, mapping, false);
-                    tr.Commit();
-                }
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return null;
 
-                // 2) Force UpdatePreviewIcon (se il metodo è esposto)
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
-                    var t = btr.GetType();
-                    var m = t.GetMethod("UpdatePreviewIcon",
-                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    if (m != null)
-                    {
-                        m.Invoke(btr, null);
-                        Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon() invocato via reflection");
-                    }
-                    else
-                    {
-                        Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon non esposto in questa versione API");
-                    }
-                    tr.Commit();
-                }
-
-                // 3) Leggi la preview
-                using (var tr = db.TransactionManager.StartTransaction())
-                {
-                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForRead);
-                    var pi = btr.PreviewIcon;
-                    if (pi != null) icon = new Bitmap(pi);
-                    tr.Commit();
-                }
-            }
-            finally
+            // CRITICAL: tutte le scritture sul Database richiedono il document
+            // lock quando il codice gira da contesto background/async (es. dopo
+            // un await su Supabase). Senza questo lock → eLockViolation.
+            using (var docLock = doc.LockDocument())
             {
-                // 4) Cleanup
-                if (blockId != ObjectId.Null)
+                try
                 {
-                    try
+                    // 1) Crea blocco + clona entità
+                    using (var tr = db.TransactionManager.StartTransaction())
                     {
-                        using var tr = db.TransactionManager.StartTransaction();
-                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
-                        btr.Erase();
+                        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
+                        var btr = new BlockTableRecord { Name = blockName };
+                        blockId = bt.Add(btr);
+                        tr.AddNewlyCreatedDBObject(btr, true);
+                        var idColl = new ObjectIdCollection(ids.ToArray());
+                        var mapping = new IdMapping();
+                        db.DeepCloneObjects(idColl, blockId, mapping, false);
                         tr.Commit();
                     }
-                    catch (System.Exception ex) { Logger.Log("TryUpdatePreviewIcon cleanup: " + ex.Message); }
+
+                    // 2) Force UpdatePreviewIcon (se il metodo è esposto)
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
+                        var t = btr.GetType();
+                        var m = t.GetMethod("UpdatePreviewIcon",
+                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                        if (m != null)
+                        {
+                            m.Invoke(btr, null);
+                            Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon() invocato via reflection");
+                        }
+                        else
+                        {
+                            Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon non esposto in questa versione API");
+                        }
+                        tr.Commit();
+                    }
+
+                    // 3) Leggi la preview
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForRead);
+                        var pi = btr.PreviewIcon;
+                        if (pi != null) icon = new Bitmap(pi);
+                        tr.Commit();
+                    }
+                }
+                finally
+                {
+                    // 4) Cleanup
+                    if (blockId != ObjectId.Null)
+                    {
+                        try
+                        {
+                            using var tr = db.TransactionManager.StartTransaction();
+                            var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
+                            btr.Erase();
+                            tr.Commit();
+                        }
+                        catch (System.Exception ex) { Logger.Log("TryUpdatePreviewIcon cleanup: " + ex.Message); }
+                    }
                 }
             }
 
@@ -472,51 +481,66 @@ namespace ImplantiAI
             Bitmap? thumb = null;
             object? oldThumbsave = null;
 
-            try
-            {
-                Logger.Log("TrySaveAndReload: tmpFile=" + tmpFile);
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return null;
 
-                try
-                {
-                    oldThumbsave = Application.GetSystemVariable("DWGTHUMBSAVE");
-                    Application.SetSystemVariable("DWGTHUMBSAVE", (short)1);
-                }
-                catch (System.Exception ex) { Logger.Log("DWGTHUMBSAVE setup: " + ex.Message); }
-
-                var idsList = ids.ToList();
-                using (var wDb = db.Wblock(new ObjectIdCollection(idsList.ToArray()), Point3d.Origin))
-                {
-                    wDb.SaveAs(tmpFile, DwgVersion.Current);
-                    Logger.Log($"TrySaveAndReload: saved {new FileInfo(tmpFile).Length} bytes");
-                }
-
-                using (var rDb = new Database(false, true))
-                {
-                    rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
-                    if (rDb.ThumbnailBitmap != null)
-                    {
-                        thumb = new Bitmap(rDb.ThumbnailBitmap);
-                        Logger.Log($"TrySaveAndReload: ThumbnailBitmap OK {thumb.Width}×{thumb.Height}");
-                    }
-                    else
-                    {
-                        Logger.Log("TrySaveAndReload: ThumbnailBitmap NULL");
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                Logger.Log("TrySaveAndReload EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
-            }
-            finally
+            using (var docLock = doc.LockDocument())
             {
                 try
                 {
-                    if (oldThumbsave != null)
-                        Application.SetSystemVariable("DWGTHUMBSAVE", oldThumbsave);
+                    Logger.Log("TrySaveAndReload: tmpFile=" + tmpFile);
+
+                    // DWGTHUMBSAVE è una system variable di tipo Int16. Alcune
+                    // versioni AutoCAD danno eInvalidInput se passi (short)1
+                    // direttamente al boxed object; preferire Int32 con cast a short
+                    // dentro SetSystemVariable (più tollerante).
+                    try
+                    {
+                        oldThumbsave = Application.GetSystemVariable("DWGTHUMBSAVE");
+                        Application.SetSystemVariable("DWGTHUMBSAVE", (short)1);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Logger.Log("DWGTHUMBSAVE (short) failed: " + ex.Message + ", try int...");
+                        try { Application.SetSystemVariable("DWGTHUMBSAVE", 1); }
+                        catch (System.Exception ex2) { Logger.Log("DWGTHUMBSAVE (int) failed too: " + ex2.Message); }
+                    }
+
+                    var idsList = ids.ToList();
+                    using (var wDb = db.Wblock(new ObjectIdCollection(idsList.ToArray()), Point3d.Origin))
+                    {
+                        wDb.SaveAs(tmpFile, DwgVersion.Current);
+                        Logger.Log($"TrySaveAndReload: saved {new FileInfo(tmpFile).Length} bytes");
+                    }
+
+                    using (var rDb = new Database(false, true))
+                    {
+                        rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
+                        if (rDb.ThumbnailBitmap != null)
+                        {
+                            thumb = new Bitmap(rDb.ThumbnailBitmap);
+                            Logger.Log($"TrySaveAndReload: ThumbnailBitmap OK {thumb.Width}×{thumb.Height}");
+                        }
+                        else
+                        {
+                            Logger.Log("TrySaveAndReload: ThumbnailBitmap NULL");
+                        }
+                    }
                 }
-                catch { }
-                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+                catch (System.Exception ex)
+                {
+                    Logger.Log("TrySaveAndReload EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (oldThumbsave != null)
+                            Application.SetSystemVariable("DWGTHUMBSAVE", oldThumbsave);
+                    }
+                    catch { }
+                    try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+                }
             }
 
             return thumb;
