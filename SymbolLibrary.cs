@@ -353,65 +353,27 @@ namespace ImplantiAI
         // ================================================================
         public static byte[]? GenerateThumbnail(IEnumerable<ObjectId> ids, Database db)
         {
-            var tmpFile = Path.Combine(Path.GetTempPath(),
-                "ang_preview_" + Guid.NewGuid().ToString("N") + ".dwg");
             Bitmap? thumb = null;
-            object? oldThumbsave = null;
 
+            // === TENTATIVO 1: BlockTableRecord.UpdatePreviewIcon ===
+            // Crea blocco temp, chiama UpdatePreviewIcon (forza la generazione
+            // della preview in-session), legge PreviewIcon. Funziona se l'API
+            // espone il metodo (alcune versioni .NET API lo hanno solo nascosto).
             try
             {
-                Logger.Log("GenerateThumbnail: START, tmpFile=" + tmpFile);
-
-                // Force DWGTHUMBSAVE=1: senza questo AutoCAD può saltare
-                // la generazione della thumbnail nei save automatici.
-                try
-                {
-                    oldThumbsave = Application.GetSystemVariable("DWGTHUMBSAVE");
-                    Application.SetSystemVariable("DWGTHUMBSAVE", (short)1);
-                    Logger.Log("GenerateThumbnail: DWGTHUMBSAVE was=" + oldThumbsave + ", now=1");
-                }
-                catch (System.Exception ex) { Logger.Log("DWGTHUMBSAVE setup: " + ex.Message); }
-
-                // 1+2: wblock e salva su disco
-                var idsList = ids.ToList();
-                Logger.Log($"GenerateThumbnail: wblock di {idsList.Count} entità");
-                using (var wDb = db.Wblock(new ObjectIdCollection(idsList.ToArray()), Point3d.Origin))
-                {
-                    Logger.Log("GenerateThumbnail: wblock OK, SaveAs...");
-                    wDb.SaveAs(tmpFile, DwgVersion.Current);
-                    var sz = new FileInfo(tmpFile).Length;
-                    Logger.Log($"GenerateThumbnail: file salvato {sz} bytes");
-                }
-
-                // 3: riapri il file e leggi ThumbnailBitmap
-                using (var rDb = new Database(false, true))
-                {
-                    rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
-                    if (rDb.ThumbnailBitmap != null)
-                    {
-                        thumb = new Bitmap(rDb.ThumbnailBitmap);
-                        Logger.Log($"GenerateThumbnail: ThumbnailBitmap OK {thumb.Width}×{thumb.Height}");
-                    }
-                    else
-                    {
-                        Logger.Log("GenerateThumbnail: ThumbnailBitmap STILL NULL after reload");
-                    }
-                }
+                thumb = TryUpdatePreviewIcon(ids, db);
+                if (thumb != null)
+                    Logger.Log("GenerateThumbnail: UpdatePreviewIcon OK");
             }
             catch (System.Exception ex)
             {
-                Logger.Log("GenerateThumbnail wblock+save EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
+                Logger.Log("GenerateThumbnail tentativo UpdatePreviewIcon: " + ex.Message);
             }
-            finally
+
+            // === TENTATIVO 2: Wblock + SaveAs + Reload ===
+            if (thumb == null)
             {
-                // Ripristina DWGTHUMBSAVE
-                try
-                {
-                    if (oldThumbsave != null)
-                        Application.SetSystemVariable("DWGTHUMBSAVE", oldThumbsave);
-                }
-                catch { }
-                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+                thumb = TrySaveAndReload(ids, db);
             }
 
             if (thumb == null) return null;
@@ -432,13 +394,134 @@ namespace ImplantiAI
             }
         }
 
+        // Tentativo via UpdatePreviewIcon (cercato via reflection per
+        // compatibilità con AutoCAD versions che lo espongono o no).
+        private static Bitmap? TryUpdatePreviewIcon(IEnumerable<ObjectId> ids, Database db)
+        {
+            string blockName = "_ANG_PREV_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            Bitmap? icon = null;
+            ObjectId blockId = ObjectId.Null;
 
-        //  WPF da usare come icona nel bottone ribbon. Dimensione tipica 32x32
-        //  per RibbonItemSize.Standard; ridimensionata automaticamente al bbox.
-        //
-        //  Coordinate AutoCAD: Y verso l'alto. WPF: Y verso il basso. Quindi
-        //  applichiamo ScaleY = -scale per riflettere verticalmente.
-        // ================================================================
+            try
+            {
+                // 1) Crea blocco + clona entità
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
+                    var btr = new BlockTableRecord { Name = blockName };
+                    blockId = bt.Add(btr);
+                    tr.AddNewlyCreatedDBObject(btr, true);
+                    var idColl = new ObjectIdCollection(ids.ToArray());
+                    var mapping = new IdMapping();
+                    db.DeepCloneObjects(idColl, blockId, mapping, false);
+                    tr.Commit();
+                }
+
+                // 2) Force UpdatePreviewIcon (se il metodo è esposto)
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
+                    var t = btr.GetType();
+                    var m = t.GetMethod("UpdatePreviewIcon",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (m != null)
+                    {
+                        m.Invoke(btr, null);
+                        Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon() invocato via reflection");
+                    }
+                    else
+                    {
+                        Logger.Log("TryUpdatePreviewIcon: UpdatePreviewIcon non esposto in questa versione API");
+                    }
+                    tr.Commit();
+                }
+
+                // 3) Leggi la preview
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForRead);
+                    var pi = btr.PreviewIcon;
+                    if (pi != null) icon = new Bitmap(pi);
+                    tr.Commit();
+                }
+            }
+            finally
+            {
+                // 4) Cleanup
+                if (blockId != ObjectId.Null)
+                {
+                    try
+                    {
+                        using var tr = db.TransactionManager.StartTransaction();
+                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
+                        btr.Erase();
+                        tr.Commit();
+                    }
+                    catch (System.Exception ex) { Logger.Log("TryUpdatePreviewIcon cleanup: " + ex.Message); }
+                }
+            }
+
+            return icon;
+        }
+
+        // Tentativo 2: wblock + save su disco + reload + leggi ThumbnailBitmap
+        private static Bitmap? TrySaveAndReload(IEnumerable<ObjectId> ids, Database db)
+        {
+            var tmpFile = Path.Combine(Path.GetTempPath(),
+                "ang_preview_" + Guid.NewGuid().ToString("N") + ".dwg");
+            Bitmap? thumb = null;
+            object? oldThumbsave = null;
+
+            try
+            {
+                Logger.Log("TrySaveAndReload: tmpFile=" + tmpFile);
+
+                try
+                {
+                    oldThumbsave = Application.GetSystemVariable("DWGTHUMBSAVE");
+                    Application.SetSystemVariable("DWGTHUMBSAVE", (short)1);
+                }
+                catch (System.Exception ex) { Logger.Log("DWGTHUMBSAVE setup: " + ex.Message); }
+
+                var idsList = ids.ToList();
+                using (var wDb = db.Wblock(new ObjectIdCollection(idsList.ToArray()), Point3d.Origin))
+                {
+                    wDb.SaveAs(tmpFile, DwgVersion.Current);
+                    Logger.Log($"TrySaveAndReload: saved {new FileInfo(tmpFile).Length} bytes");
+                }
+
+                using (var rDb = new Database(false, true))
+                {
+                    rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
+                    if (rDb.ThumbnailBitmap != null)
+                    {
+                        thumb = new Bitmap(rDb.ThumbnailBitmap);
+                        Logger.Log($"TrySaveAndReload: ThumbnailBitmap OK {thumb.Width}×{thumb.Height}");
+                    }
+                    else
+                    {
+                        Logger.Log("TrySaveAndReload: ThumbnailBitmap NULL");
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Log("TrySaveAndReload EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
+            }
+            finally
+            {
+                try
+                {
+                    if (oldThumbsave != null)
+                        Application.SetSystemVariable("DWGTHUMBSAVE", oldThumbsave);
+                }
+                catch { }
+                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
+            }
+
+            return thumb;
+        }
+
         public static BitmapSource? RenderPreview(JObject simbolo, int size = 96)
         {
             try
@@ -613,10 +696,21 @@ namespace ImplantiAI
                                 //  - vBottom: il punto e' baseline/bottom -> origin.y = ay - h
                                 double oy = vTop ? ay : vCenter ? ay - h * 0.5 : ay - h;
 
+                                // Rotation: importante per testi verticali (FEM/INC tipici
+                                // su scatole di derivazione). AutoCAD usa radianti. WPF usa
+                                // gradi e senso orario (mentre AutoCAD è antiorario), quindi
+                                // converto + invert segno.
+                                double rotRad = (double?)e["rotation"] ?? 0.0;
+                                double rotDeg = -rotRad * 180.0 / Math.PI;
+
                                 // Riflettiamo Y attorno all'anchor per compensare il
                                 // ScaleY=-scale esterno (testo dritto, non specchiato).
+                                // Poi applichiamo la rotation attorno allo stesso anchor.
                                 dc.PushTransform(new ScaleTransform(1, -1, ax, ay));
+                                if (Math.Abs(rotDeg) > 0.01)
+                                    dc.PushTransform(new RotateTransform(rotDeg, ax, ay));
                                 dc.DrawText(ft, new System.Windows.Point(ax, oy));
+                                if (Math.Abs(rotDeg) > 0.01) dc.Pop();
                                 dc.Pop();
                             }
                         }
