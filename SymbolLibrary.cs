@@ -469,9 +469,9 @@ namespace ImplantiAI
                 {
                     // Sfondo scuro stile AutoCAD per coerenza visiva (RGB ~33,33,33)
                     // con un bordo sottile per delimitare l'area dell'icona.
-                    var bgBrush = new SolidColorBrush(Color.FromRgb(0x21, 0x21, 0x21));
+                    var bgBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x21, 0x21, 0x21));
                     bgBrush.Freeze();
-                    var borderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+                    var borderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x44, 0x44, 0x44));
                     borderBrush.Freeze();
                     var borderPen = new System.Windows.Media.Pen(borderBrush, 1);
                     borderPen.Freeze();

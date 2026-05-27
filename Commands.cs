@@ -122,7 +122,7 @@ namespace ImplantiAI
             {
                 var pOver = new PromptKeywordOptions(
                     $"\n⚠ Simbolo '{nomeRes.StringResult}' già esistente. Sovrascrivere? [Si/No]")
-                { AllowNone = false };
+                ;
                 pOver.Keywords.Add("Si");
                 pOver.Keywords.Add("No");
                 pOver.Keywords.Default = "No";
@@ -290,8 +290,8 @@ namespace ImplantiAI
 
         // ========================================================
         //  ELIMINA SIMBOLO
-        //  Mostra la lista dei simboli che matchano un pattern,
-        //  chiede conferma, poi cancella record + PNG su Storage.
+        //  Mostra direttamente la lista dei simboli, l'utente sceglie
+        //  il numero, conferma, e si cancellano record DB + PNG Storage.
         // ========================================================
         [CommandMethod("ELIMINA_SIMBOLO")]
         public async void EliminaSimboloCommand()
@@ -300,24 +300,9 @@ namespace ImplantiAI
             if (doc == null) return;
             var ed = doc.Editor;
 
-            // 1) Pattern di ricerca (vuoto = mostra tutti)
-            var pName = new PromptStringOptions("\nNome (o parte) del simbolo da eliminare [INVIO=tutti]: ")
-            {
-                AllowSpaces = true,
-                AllowNone = true,
-            };
-            var nameRes = ed.GetString(pName);
-            if (nameRes.Status != PromptStatus.OK) return;
-            var pattern = nameRes.StringResult?.Trim() ?? "";
-
-            ed.WriteMessage("\n🔍 Ricerca simboli...");
+            ed.WriteMessage("\n🔍 Caricamento libreria...");
             JArray simboli;
-            try
-            {
-                simboli = string.IsNullOrEmpty(pattern)
-                    ? await SymbolLibrary.CaricaSimboli()
-                    : await SymbolLibrary.CercaPerNome(pattern);
-            }
+            try { simboli = await SymbolLibrary.CaricaSimboli(); }
             catch (System.Exception ex)
             {
                 ed.WriteMessage("\n⚠ Errore di rete: " + ex.Message + "\n");
@@ -326,58 +311,34 @@ namespace ImplantiAI
 
             if (simboli.Count == 0)
             {
-                ed.WriteMessage($"\n📭 Nessun simbolo trovato per '{pattern}'.\n");
+                ed.WriteMessage("\n📭 Libreria vuota.\n");
                 return;
             }
 
-            // 2) Mostra l'elenco numerato
-            ed.WriteMessage($"\n📋 {simboli.Count} simbolo/i trovati:\n");
+            ed.WriteMessage($"\n📋 {simboli.Count} simbolo/i in libreria:\n");
             for (int i = 0; i < simboli.Count; i++)
             {
                 var s = (JObject)simboli[i];
                 ed.WriteMessage($"  [{i + 1}] {(string?)s["nome"]} ({(string?)s["categoria"]})\n");
             }
-            if (simboli.Count > 1)
-                ed.WriteMessage($"  [A] Elimina TUTTI ({simboli.Count})\n");
 
-            // 3) Scelta utente
-            var pChoice = new PromptStringOptions(simboli.Count > 1
-                ? "\nDigita il numero da eliminare (o 'A' per tutti, INVIO per annullare): "
-                : "\nDigita 1 per confermare (INVIO per annullare): ")
+            // PromptIntegerOptions accetta AllowNone pubblico, range limit + ESC per annullare
+            var pChoice = new PromptIntegerOptions("\nNumero del simbolo da eliminare: ")
             {
-                AllowSpaces = false,
-                AllowNone = true,
+                AllowNone = false,
+                LowerLimit = 1,
+                UpperLimit = simboli.Count,
             };
-            var choiceRes = ed.GetString(pChoice);
-            if (choiceRes.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(choiceRes.StringResult))
+            var choiceRes = ed.GetInteger(pChoice);
+            if (choiceRes.Status != PromptStatus.OK)
             {
                 ed.WriteMessage("\n❌ Annullato.\n");
                 return;
             }
-            var choice = choiceRes.StringResult.Trim().ToUpperInvariant();
+            var daEliminare = (JObject)simboli[choiceRes.Value - 1];
 
-            // 4) Determina set di simboli da eliminare
-            var daEliminare = new List<JObject>();
-            if (choice == "A" && simboli.Count > 1)
-            {
-                foreach (JObject s in simboli) daEliminare.Add(s);
-            }
-            else if (int.TryParse(choice, out int idx) && idx >= 1 && idx <= simboli.Count)
-            {
-                daEliminare.Add((JObject)simboli[idx - 1]);
-            }
-            else
-            {
-                ed.WriteMessage("\n❌ Scelta non valida, annullato.\n");
-                return;
-            }
-
-            // 5) Conferma finale
-            var nomi = string.Join(", ", daEliminare.Select(s => "'" + (string?)s["nome"] + "'"));
-            var pConfirm = new PromptKeywordOptions($"\n⚠ Sto per eliminare {daEliminare.Count} simbolo/i ({nomi}). Confermi? [Si/No]")
-            {
-                AllowNone = false,
-            };
+            var pConfirm = new PromptKeywordOptions(
+                $"\n⚠ Sto per eliminare '{(string?)daEliminare["nome"]}'. Confermi? [Si/No]");
             pConfirm.Keywords.Add("Si");
             pConfirm.Keywords.Add("No");
             pConfirm.Keywords.Default = "No";
@@ -388,21 +349,14 @@ namespace ImplantiAI
                 return;
             }
 
-            // 6) Esegui eliminazione
-            int ok = 0, fail = 0;
-            foreach (var s in daEliminare)
-            {
-                ed.WriteMessage($"\n🗑 Elimino '{(string?)s["nome"]}'...");
-                bool result = await SymbolLibrary.EliminaSimbolo(s);
-                if (result) { ok++; ed.WriteMessage(" OK"); }
-                else { fail++; ed.WriteMessage(" ⚠ fallito"); }
-            }
-            ed.WriteMessage($"\n✅ Eliminati {ok}/{daEliminare.Count} simboli." + (fail > 0 ? $" ({fail} errori, vedi log)" : "") + "\n");
+            ed.WriteMessage($"\n🗑 Elimino '{(string?)daEliminare["nome"]}'...");
+            bool ok = await SymbolLibrary.EliminaSimbolo(daEliminare);
+            ed.WriteMessage(ok ? " ✅\n" : " ⚠ fallito (vedi log)\n");
 
-            // 7) Refresh ribbon
             try { await RibbonManager.RefreshSymbolsPanel(); }
             catch (System.Exception ex) { Logger.Log("RefreshSymbolsPanel after delete: " + ex.Message); }
         }
+
 
         // ========================================================
         // MEMORIZZA OGGETTO (per arredi/mobili - riconoscimento)
