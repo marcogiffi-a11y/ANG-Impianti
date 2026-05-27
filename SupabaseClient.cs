@@ -39,7 +39,7 @@ namespace ImplantiAI
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             var resp = await _http.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) throw new Exception($"Supabase Select {table}: {resp.StatusCode} {body}");
+            if (!resp.IsSuccessStatusCode) throw new System.Exception($"Supabase Select {table}: {resp.StatusCode} {body}");
             return JArray.Parse(body);
         }
 
@@ -51,7 +51,7 @@ namespace ImplantiAI
             req.Content = new StringContent("[" + row.ToString() + "]", Encoding.UTF8, "application/json");
             var resp = await _http.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
-            if (!resp.IsSuccessStatusCode) throw new Exception($"Supabase Insert {table}: {resp.StatusCode} {body}");
+            if (!resp.IsSuccessStatusCode) throw new System.Exception($"Supabase Insert {table}: {resp.StatusCode} {body}");
             var arr = JArray.Parse(body);
             return arr.Count > 0 ? (JObject)arr[0] : new JObject();
         }
