@@ -8,6 +8,9 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
+using System.Xml.Linq;
+using System.IO.Compression;
+using System.Reflection;
 
 [assembly: CommandClass(typeof(ImplantiAI.Commands))]
 [assembly: CommandClass(typeof(ImplantiAI.PluginApp))]
@@ -21,7 +24,14 @@ namespace ImplantiAI
         public static ChatPanel? Chat { get; private set; }
 
         private const string UPDATE_URL = "https://ang-gest.vercel.app/api/ang-impianti-version";
-        public  const string CURRENT_VERSION = "2.15";
+
+        // CURRENT_VERSION è risolta a runtime leggendo PackageContents.xml accanto al DLL.
+        // Niente hardcoding: il CI/CD aggiorna PackageContents.xml prima del build,
+        // così il binario distribuito riporta sempre la versione corretta.
+        // Mantenuta come API pubblica statica perché ChatPanel.cs la consuma.
+        private static string? _currentVersion;
+        public static string CURRENT_VERSION => _currentVersion ??= ResolveInstalledVersionString();
+
         private static bool _updateChecked = false;
         private static string _acadExePath = "";
 
@@ -77,11 +87,106 @@ namespace ImplantiAI
             Task.Run(() => CheckForUpdates());
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        //  RESOLVER VERSIONE INSTALLATA — fonte di verità: PackageContents.xml
+        //  Cerca il file risalendo dall'assembly corrente (DLL → Contents/2025/ →
+        //  Contents/ → bundle root). Se non lo trova, fallback al file VERSION
+        //  copiato nel bundle (vedi CI). In ultima istanza ritorna "0.0" per
+        //  forzare l'update (safe-by-default).
+        // ─────────────────────────────────────────────────────────────────
+        private static string ResolveInstalledVersionString()
+        {
+            try
+            {
+                var asmLoc = Assembly.GetExecutingAssembly().Location;
+                if (string.IsNullOrEmpty(asmLoc)) return "0.0";
+                var dir = new DirectoryInfo(Path.GetDirectoryName(asmLoc)!);
+
+                // Risali max 4 livelli cercando PackageContents.xml o VERSION
+                for (int i = 0; i < 4 && dir != null; i++)
+                {
+                    var pc = Path.Combine(dir.FullName, "PackageContents.xml");
+                    if (File.Exists(pc))
+                    {
+                        try
+                        {
+                            var xml = XDocument.Load(pc);
+                            var root = xml.Root;
+                            if (root != null)
+                            {
+                                // Priorità: AppVersion → Version
+                                var v = (string?)root.Attribute("AppVersion")
+                                     ?? (string?)root.Attribute("Version");
+                                if (!string.IsNullOrWhiteSpace(v)) return v.Trim();
+                            }
+                        }
+                        catch { /* xml malformato, prova VERSION */ }
+                    }
+                    var verFile = Path.Combine(dir.FullName, "VERSION");
+                    if (File.Exists(verFile))
+                    {
+                        var v = File.ReadAllText(verFile).Trim();
+                        if (!string.IsNullOrWhiteSpace(v)) return v;
+                    }
+                    dir = dir.Parent;
+                }
+            }
+            catch (System.Exception ex) { Logger.Log("ResolveVersion: " + ex.Message); }
+            return "0.0";
+        }
+
+        // Confronto numerico vero. Tollera "3", "3.0", "3.0.1" e tutto in mezzo.
+        // Ritorna true se `remote` è più recente di `installed`.
+        private static bool IsNewer(string remote, string installed)
+        {
+            // Normalizza: "3.0" → "3.0.0.0"
+            static System.Version Norm(string s)
+            {
+                if (System.Version.TryParse(s, out var v)) return v;
+                // tentativo: prendi solo cifre e punti
+                var clean = Regex.Replace(s ?? "", @"[^\d\.]", "");
+                return System.Version.TryParse(clean, out var v2) ? v2 : new System.Version(0, 0);
+            }
+            return Norm(remote) > Norm(installed);
+        }
+
+        // Cooldown anti-loop: dopo un tentativo fallito (o riuscito) non ricontrollare
+        // entro 1 ora. Evita di tempestare l'utente se qualcosa va storto.
+        private static string CooldownFilePath() =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                         "ANGImpianti", "last_attempt.txt");
+
+        private static bool IsInCooldown()
+        {
+            try
+            {
+                var f = CooldownFilePath();
+                if (!File.Exists(f)) return false;
+                if (DateTime.TryParse(File.ReadAllText(f).Trim(), out var ts))
+                    return (DateTime.UtcNow - ts.ToUniversalTime()) < TimeSpan.FromHours(1);
+            }
+            catch { }
+            return false;
+        }
+
+        private static void MarkAttempt()
+        {
+            try
+            {
+                var f = CooldownFilePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(f)!);
+                File.WriteAllText(f, DateTime.UtcNow.ToString("o"));
+            }
+            catch { }
+        }
+
         private void CheckForUpdates()
         {
             try
             {
                 Logger.Log("CheckForUpdates: start");
+                if (IsInCooldown()) { Logger.Log("CheckForUpdates: in cooldown, skip"); return; }
+
                 using var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("User-Agent", "ANG-Impianti/" + CURRENT_VERSION);
                 client.Timeout = TimeSpan.FromSeconds(15);
@@ -93,7 +198,13 @@ namespace ImplantiAI
                 var latest = verMatch.Groups[1].Value.Trim();
                 var downloadUrl = urlMatch.Success ? urlMatch.Groups[1].Value : "";
                 Logger.Log("CheckForUpdates: latest=" + latest + " current=" + CURRENT_VERSION);
-                if (latest == CURRENT_VERSION) return;
+
+                // Confronto NUMERICO (era ==, ora >): nessun loop su downgrade o uguale
+                if (!IsNewer(latest, CURRENT_VERSION))
+                {
+                    Logger.Log("CheckForUpdates: installed >= latest, nothing to do");
+                    return;
+                }
 
                 // v2.15: dispatcher al UI thread per popup + install sincroni
                 var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -143,6 +254,7 @@ namespace ImplantiAI
         private void InstallUpdate(string downloadUrl)
         {
             Logger.Log("InstallUpdate: ENTRY url=" + downloadUrl);
+            MarkAttempt();  // segna il tentativo PRIMA: se fallisce, cooldown attivo per 1h
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
@@ -157,6 +269,27 @@ namespace ImplantiAI
                 var bytes = client.GetByteArrayAsync(downloadUrl).GetAwaiter().GetResult();
                 File.WriteAllBytes(tempZip, bytes);
                 Logger.Log("InstallUpdate: downloaded " + bytes.Length + " bytes");
+
+                // 1b) VALIDA lo zip prima di chiudere AutoCAD. Se è corrotto o vuoto,
+                //     abortisci adesso che il plugin è ancora caricato: niente loop.
+                try
+                {
+                    using var zipCheck = ZipFile.OpenRead(tempZip);
+                    var hasDll = false;
+                    foreach (var entry in zipCheck.Entries)
+                        if (entry.FullName.EndsWith("ImplantiAI.dll", StringComparison.OrdinalIgnoreCase))
+                        { hasDll = true; break; }
+                    if (!hasDll) throw new System.Exception("Zip valido ma senza ImplantiAI.dll");
+                    Logger.Log("InstallUpdate: zip validated OK");
+                }
+                catch (System.Exception zex)
+                {
+                    Logger.Log("InstallUpdate: ZIP INVALID, abort. " + zex.Message);
+                    MessageBox.Show(
+                        "Download danneggiato. Riprovo al prossimo avvio.\n\nDettagli: " + zex.Message,
+                        "ANG-Impianti", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
 
                 // 2) Feedback DOPO il download (non blocca il download stesso)
                 MessageBox.Show(

@@ -26,6 +26,17 @@ jobs:
         echo "PLUGIN_VERSION=$version" >> $env:GITHUB_ENV
         Write-Host "Plugin version: $version"
 
+    - name: Patch PackageContents.xml con versione da VERSION
+      shell: pwsh
+      run: |
+        # Source of truth = VERSION. Riscrive AppVersion= e Version= prima del bundle.
+        $pc = Get-Content PackageContents.xml -Raw
+        $pc = [regex]::Replace($pc, 'AppVersion="[^"]*"', "AppVersion=""$env:PLUGIN_VERSION""")
+        $pc = [regex]::Replace($pc, '(?<!App)Version="[^"]*"', "Version=""$env:PLUGIN_VERSION""")
+        Set-Content PackageContents.xml -Value $pc -NoNewline
+        Write-Host "PackageContents.xml patched a v$env:PLUGIN_VERSION"
+        Get-Content PackageContents.xml | Select-Object -First 10
+
     - name: Restore
       run: dotnet restore ImplantiAI.csproj
 
@@ -42,6 +53,7 @@ jobs:
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2025/" -ErrorAction SilentlyContinue
         Copy-Item "build/Newtonsoft.Json.dll" "ANGImpianti.bundle/Contents/2026/" -ErrorAction SilentlyContinue
         Copy-Item "PackageContents.xml" "ANGImpianti.bundle/"
+        Copy-Item "VERSION" "ANGImpianti.bundle/" -ErrorAction SilentlyContinue
 
     - name: Crea ZIP
       shell: pwsh
