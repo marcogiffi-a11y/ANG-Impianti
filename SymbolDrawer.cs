@@ -22,7 +22,7 @@ namespace ImplantiAI
             tr.AddNewlyCreatedDBObject(l, true);
         }
 
-        public static void AddText(Transaction tr, BlockTableRecord btr, Point3d pos, string text, string layer, double height = 15)
+        public static void AddText(Transaction tr, BlockTableRecord btr, Point3d pos, string text, double height, string layer)
         {
             EnsureLayer(btr.Database, layer);
             var t = new DBText
