@@ -82,7 +82,12 @@ namespace ImplantiAI
             try { simboli = await SymbolLibrary.CaricaSimboli(); }
             catch (Exception ex) { simboli = new JArray(); errore = ex.Message; Logger.Log("LoadDynamicSymbols: " + ex.Message); }
 
-            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            // L'aggiornamento del ribbon DEVE girare sul UI thread.
+            // Nei plugin AutoCAD `System.Windows.Application.Current` è null
+            // (AutoCAD non è un'applicazione WPF standard), quindi usiamo
+            // il Dispatcher del panel stesso (è un DispatcherObject WPF) e
+            // facciamo fallback a chiamata diretta solo come ultima spiaggia.
+            Action update = () =>
             {
                 try
                 {
@@ -90,7 +95,6 @@ namespace ImplantiAI
 
                     if (errore != null)
                     {
-                        // Stato di errore: utente sa che è una libreria irraggiungibile, non un caricamento eterno
                         panel.Source.Title = "Simboli (errore)";
                         panel.Source.Items.Add(MkSm("⚠ Verifica config", ""));
                         return;
@@ -100,12 +104,10 @@ namespace ImplantiAI
 
                     if (simboli.Count == 0)
                     {
-                        // Libreria vuota: messaggio chiaro invece di placeholder muto
                         panel.Source.Items.Add(MkSm("(vuota — usa AGGIUNGI_SIMBOLO)", ""));
                         return;
                     }
 
-                    // Raggruppa per categoria
                     var perCat = new Dictionary<string, List<JObject>>();
                     foreach (JObject s in simboli)
                     {
@@ -136,7 +138,20 @@ namespace ImplantiAI
                     }
                 }
                 catch (Exception uiEx) { Logger.Log("LoadDynamicSymbols UI: " + uiEx.Message); }
-            });
+            };
+
+            // Priorità: dispatcher del panel (sempre disponibile, è WPF) → Application.Current → diretto
+            var dispatcher = panel?.Dispatcher ?? System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher != null)
+            {
+                if (dispatcher.CheckAccess()) update();
+                else dispatcher.Invoke(update);
+            }
+            else
+            {
+                Logger.Log("LoadDynamicSymbols: nessun dispatcher disponibile, chiamata diretta");
+                update();
+            }
         }
 
         private static string TruncateLabel(string s) => s.Length > 20 ? s.Substring(0, 18) + "…" : s;
