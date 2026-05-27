@@ -316,51 +316,72 @@ namespace ImplantiAI
             var tmpFile = Path.Combine(Path.GetTempPath(),
                 "ang_preview_" + Guid.NewGuid().ToString("N") + ".dwg");
             Bitmap? thumb = null;
+            object? oldThumbsave = null;
 
             try
             {
-                // 1+2: wblock e salva su disco. Wblock crea un Database in
-                // memoria contenente le entità clonate nel ModelSpace.
-                // SaveAs trigghera la generazione automatica della thumbnail.
-                using (var wDb = db.Wblock(new ObjectIdCollection(ids.ToArray()), Point3d.Origin))
+                Logger.Log("GenerateThumbnail: START, tmpFile=" + tmpFile);
+
+                // Force DWGTHUMBSAVE=1: senza questo AutoCAD può saltare
+                // la generazione della thumbnail nei save automatici.
+                try
                 {
+                    oldThumbsave = Application.GetSystemVariable("DWGTHUMBSAVE");
+                    Application.SetSystemVariable("DWGTHUMBSAVE", (short)1);
+                    Logger.Log("GenerateThumbnail: DWGTHUMBSAVE was=" + oldThumbsave + ", now=1");
+                }
+                catch (System.Exception ex) { Logger.Log("DWGTHUMBSAVE setup: " + ex.Message); }
+
+                // 1+2: wblock e salva su disco
+                var idsList = ids.ToList();
+                Logger.Log($"GenerateThumbnail: wblock di {idsList.Count} entità");
+                using (var wDb = db.Wblock(new ObjectIdCollection(idsList.ToArray()), Point3d.Origin))
+                {
+                    Logger.Log("GenerateThumbnail: wblock OK, SaveAs...");
                     wDb.SaveAs(tmpFile, DwgVersion.Current);
-                    Logger.Log("GenerateThumbnail: wblock+save OK -> " + tmpFile);
+                    var sz = new FileInfo(tmpFile).Length;
+                    Logger.Log($"GenerateThumbnail: file salvato {sz} bytes");
                 }
 
-                // 3: riapri il file in un nuovo Database, AutoCAD popola
-                // ThumbnailBitmap durante ReadDwgFile.
+                // 3: riapri il file e leggi ThumbnailBitmap
                 using (var rDb = new Database(false, true))
                 {
                     rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
                     if (rDb.ThumbnailBitmap != null)
                     {
-                        // Clone della bitmap: rDb verrà disposed alla fine dello using
                         thumb = new Bitmap(rDb.ThumbnailBitmap);
+                        Logger.Log($"GenerateThumbnail: ThumbnailBitmap OK {thumb.Width}×{thumb.Height}");
+                    }
+                    else
+                    {
+                        Logger.Log("GenerateThumbnail: ThumbnailBitmap STILL NULL after reload");
                     }
                 }
             }
             catch (System.Exception ex)
             {
-                Logger.Log("GenerateThumbnail wblock+save: " + ex.Message);
+                Logger.Log("GenerateThumbnail wblock+save EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
             }
             finally
             {
+                // Ripristina DWGTHUMBSAVE
+                try
+                {
+                    if (oldThumbsave != null)
+                        Application.SetSystemVariable("DWGTHUMBSAVE", oldThumbsave);
+                }
+                catch { }
                 try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
             }
 
-            if (thumb == null)
-            {
-                Logger.Log("GenerateThumbnail: ThumbnailBitmap null dopo save+reload, fallback vector");
-                return null;
-            }
+            if (thumb == null) return null;
 
             try
             {
                 using var ms = new MemoryStream();
                 thumb.Save(ms, ImageFormat.Png);
                 var bytes = ms.ToArray();
-                Logger.Log($"GenerateThumbnail save+reload: PNG {bytes.Length} bytes ({thumb.Width}×{thumb.Height})");
+                Logger.Log($"GenerateThumbnail: PNG encoded {bytes.Length} bytes");
                 thumb.Dispose();
                 return bytes;
             }
