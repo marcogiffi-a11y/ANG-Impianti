@@ -169,13 +169,24 @@ namespace ImplantiAI
             return false;
         }
 
-        private static void MarkAttempt()
+        private static void MarkFailure()
         {
             try
             {
                 var f = CooldownFilePath();
                 Directory.CreateDirectory(Path.GetDirectoryName(f)!);
                 File.WriteAllText(f, DateTime.UtcNow.ToString("o"));
+                Logger.Log("MarkFailure: cooldown attivato per 1h");
+            }
+            catch { }
+        }
+
+        private static void ClearCooldown()
+        {
+            try
+            {
+                var f = CooldownFilePath();
+                if (File.Exists(f)) File.Delete(f);
             }
             catch { }
         }
@@ -203,6 +214,7 @@ namespace ImplantiAI
                 if (!IsNewer(latest, CURRENT_VERSION))
                 {
                     Logger.Log("CheckForUpdates: installed >= latest, nothing to do");
+                    ClearCooldown();  // auto-recovery se cooldown stantio da release passata
                     return;
                 }
 
@@ -254,7 +266,8 @@ namespace ImplantiAI
         private void InstallUpdate(string downloadUrl)
         {
             Logger.Log("InstallUpdate: ENTRY url=" + downloadUrl);
-            MarkAttempt();  // segna il tentativo PRIMA: se fallisce, cooldown attivo per 1h
+            // Cooldown SOLO dopo failure: vedi MarkFailure() nei catch.
+            // Niente più "ho cliccato Sì e adesso devo aspettare 1h per il prossimo update".
             try
             {
                 var tempZip = Path.Combine(Path.GetTempPath(), "ANGImpianti_update.zip");
@@ -285,6 +298,7 @@ namespace ImplantiAI
                 catch (System.Exception zex)
                 {
                     Logger.Log("InstallUpdate: ZIP INVALID, abort. " + zex.Message);
+                    MarkFailure();
                     MessageBox.Show(
                         "Download danneggiato. Riprovo al prossimo avvio.\n\nDettagli: " + zex.Message,
                         "ANG-Impianti", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -388,6 +402,7 @@ namespace ImplantiAI
             catch (System.Exception ex)
             {
                 Logger.Log("Install: " + ex.Message);
+                MarkFailure();
                 MessageBox.Show("Errore: " + ex.Message, "Errore",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }

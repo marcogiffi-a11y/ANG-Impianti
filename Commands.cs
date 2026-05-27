@@ -181,6 +181,45 @@ namespace ImplantiAI
         }
 
         // ========================================================
+        // RIBBON HANDLER: comando di trampolino chiamato dai bottoni
+        // del panel dinamico via SendStringToExecute. Necessario perché
+        // l'handler WPF gira fuori dal document context.
+        // ========================================================
+
+        [CommandMethod("_RIBBON_INSERT_SYMBOL")]
+        public void RibbonInsertSymbol()
+        {
+            var simbolo = RibbonManager.PendingSymbol;
+            RibbonManager.PendingSymbol = null;  // consume
+
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            if (simbolo == null)
+            {
+                ed.WriteMessage("\n⚠ Nessun simbolo selezionato dal ribbon.\n");
+                Logger.Log("_RIBBON_INSERT_SYMBOL: PendingSymbol era null");
+                return;
+            }
+
+            Logger.Log("_RIBBON_INSERT_SYMBOL: insert " + (string?)simbolo["nome"]);
+            var pPoint = new PromptPointOptions($"\nInserisci '{simbolo["nome"]}': ");
+            var pRes = ed.GetPoint(pPoint);
+            if (pRes.Status != PromptStatus.OK) return;
+            try
+            {
+                SymbolLibrary.InserisciSimbolo(simbolo, pRes.Value);
+                ed.WriteMessage($"\n✅ {simbolo["nome"]} inserito.\n");
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Log("_RIBBON_INSERT_SYMBOL error: " + ex.Message);
+                ed.WriteMessage($"\n⚠ Errore inserimento: {ex.Message}\n");
+            }
+        }
+
+        // ========================================================
         // MEMORIZZA OGGETTO (per arredi/mobili - riconoscimento)
         // ========================================================
 

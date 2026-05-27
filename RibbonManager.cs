@@ -66,6 +66,14 @@ namespace ImplantiAI
         private static RibbonPanel? _dynamicPanel;
 
         /// <summary>
+        /// Simbolo "in attesa di essere inserito": l'handler del bottone ribbon
+        /// (sul thread WPF) lo deposita qui, poi il comando AutoCAD
+        /// _RIBBON_INSERT_SYMBOL lo legge dal thread del documento (dove
+        /// GetPoint/Database/etc sono utilizzabili).
+        /// </summary>
+        public static JObject? PendingSymbol;
+
+        /// <summary>
         /// Ricarica il panel "Simboli (libreria)" da Supabase. Chiamato da
         /// AggiungiSimboloCommand dopo un salvataggio andato a buon fine.
         /// </summary>
@@ -210,18 +218,21 @@ namespace ImplantiAI
         public bool CanExecute(object? parameter) => true;
         public void Execute(object? parameter)
         {
-            var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
-            if (doc == null) return;
-            var ed = doc.Editor;
-            var pPoint = new Autodesk.AutoCAD.EditorInput.PromptPointOptions($"\nInserisci '{_simbolo["nome"]}': ");
-            var pRes = ed.GetPoint(pPoint);
-            if (pRes.Status != Autodesk.AutoCAD.EditorInput.PromptStatus.OK) return;
+            // PROBLEMA: questo handler gira sul thread WPF, ma GetPoint/Database/etc
+            // richiedono il document context (thread del doc). Soluzione: salvare il
+            // simbolo target in una static e iniettare un comando AutoCAD che lo
+            // raccoglierà dal contesto giusto via SendStringToExecute.
             try
             {
-                SymbolLibrary.InserisciSimbolo(_simbolo, pRes.Value);
-                ed.WriteMessage($"\n✅ {_simbolo["nome"]} inserito.\n");
+                var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+                if (doc == null) { Logger.Log("InsertSymbolHandler: no active document"); return; }
+
+                RibbonManager.PendingSymbol = _simbolo;
+                Logger.Log("InsertSymbolHandler: pending=" + (string?)_simbolo["nome"] + ", invio comando _RIBBON_INSERT_SYMBOL");
+                // Lo spazio finale equivale a "premere INVIO" dopo il nome comando
+                doc.SendStringToExecute("_RIBBON_INSERT_SYMBOL ", true, false, true);
             }
-            catch (Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
+            catch (Exception ex) { Logger.Log("InsertSymbolHandler.Execute: " + ex.Message); }
         }
     }
 }
