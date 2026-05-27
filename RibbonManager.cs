@@ -1,5 +1,10 @@
 using Autodesk.Windows;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace ImplantiAI
 {
@@ -17,91 +22,156 @@ namespace ImplantiAI
 
             var tab = new RibbonTab { Title = "ANG-Impianti AI", Id = "ANG_TAB" };
 
-            // VANI
+            // ============ LAYER ============
+            tab.Panels.Add(MkPanel("Layer ANG",
+                MkBig("Aggiorna\nLayer",    "AGGIORNA_LAYER"),
+                MkBig("Nuovo\nLayer",       "NUOVO_LAYER")));
+
+            // ============ LIBRERIA SIMBOLI ============
+            tab.Panels.Add(MkPanel("Libreria Simboli",
+                MkBig("Aggiungi\nSimbolo",    "AGGIUNGI_SIMBOLO"),
+                MkBig("Mostra\nLibreria",     "LIBRERIA_SIMBOLI"),
+                MkBig("Inserisci\nda Libreria", "INSERISCI_DA_LIBRERIA")));
+
+            // ============ MEMORIZZAZIONE ============
+            tab.Panels.Add(MkPanel("Memoria Mary",
+                MkBig("Memorizza\nOggetto",   "MEMORIZZA_OGGETTO"),
+                MkBig("Memorizza\nProgetto",  "MEMORIZZA_PROGETTO")));
+
+            // ============ VANI ============
             tab.Panels.Add(MkPanel("Vani",
                 MkBig("Disegna\nVano", "DISEGNA_VANO"),
                 MkBig("Riconosci\nVani", "RICONOSCI_VANI")));
 
-            // AI
+            // ============ AI ============
             tab.Panels.Add(MkPanel("AI",
-                MkBig("Chat\nAI", "APRI_CHAT"),
-                MkBig("Ricorda\nRegola", "RICORDA_REGOLA"),
-                MkBig("Mostra\nRegole", "MOSTRA_REGOLE")));
+                MkBig("Chat\nMary", "APRI_CHAT")));
 
-            // ILLUMINAZIONE
-            tab.Panels.Add(MkPanel("Illuminazione",
-                MkSm("Corpo soffitto", "INS_LUCE_SOFFITTO"),
-                MkSm("Corpo parete", "INS_LUCE_PARETE"),
-                MkSm("Emergenza", "INS_LUCE_EMERGENZA"),
-                new RibbonSeparator(),
-                MkSm("Interruttore 1P", "INS_INT_1P"),
-                MkSm("Interruttore 2P", "INS_INT_2P"),
-                MkSm("Pulsante", "INS_PULSANTE"),
-                MkSm("Doppio Pulsante", "INS_DOPPIO_PULSANTE")));
-
-            // PRESE
-            tab.Panels.Add(MkPanel("Prese",
-                MkSm("Presa Universale", "INS_PRESA_UNIV"),
-                MkSm("Presa Comandata", "INS_PRESA_CMD"),
-                MkSm("Presa TV", "INS_PRESA_TV"),
-                MkSm("Presa SAT", "INS_PRESA_SAT"),
-                new RibbonSeparator(),
-                MkSm("Scatola FEM", "INS_SCATOLA_FEM"),
-                MkSm("Scatola Luce", "INS_SCATOLA_LUCE")));
-
-            // SPECIALI
-            tab.Panels.Add(MkPanel("Speciali",
-                MkSm("Videocitofono Int.", "INS_VIDEOCIT_INT"),
-                MkSm("Videocitofono Est.", "INS_VIDEOCIT_EST"),
-                MkSm("Suoneria", "INS_SUONERIA"),
-                MkSm("Ventilatore", "INS_VENTILATORE"),
-                new RibbonSeparator(),
-                MkSm("Rivelatore GAS", "INS_RIV_GAS"),
-                MkSm("Rivelatore H2O", "INS_RIV_H2O"),
-                MkSm("Cronotermostato", "INS_CRONOTERM")));
-
-            // CIRCUITI
-            tab.Panels.Add(MkPanel("Circuiti",
-                MkBig("Distinta\nMateriali", "GENERA_DISTINTA")));
+            // ============ SIMBOLI DINAMICI (caricati da Supabase) ============
+            // Placeholder che verrà popolato in async
+            var dynamicPanel = MkPanel("Simboli (libreria)",
+                MkSm("Caricamento...", ""));
+            tab.Panels.Add(dynamicPanel);
 
             rc.Tabs.Add(tab);
             tab.IsActive = true;
+
+            // Carica simboli da Supabase in background
+            _ = LoadDynamicSymbols(dynamicPanel);
         }
+
+        private static async Task LoadDynamicSymbols(RibbonPanel panel)
+        {
+            try
+            {
+                var simboli = await SymbolLibrary.CaricaSimboli();
+                if (simboli.Count == 0) return;
+
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    panel.Source.Items.Clear();
+                    panel.Source.Title = $"Simboli ({simboli.Count})";
+
+                    // Raggruppa per categoria
+                    var perCat = new Dictionary<string, List<JObject>>();
+                    foreach (JObject s in simboli)
+                    {
+                        var cat = (string?)s["categoria"] ?? "Altro";
+                        if (!perCat.ContainsKey(cat)) perCat[cat] = new List<JObject>();
+                        perCat[cat].Add(s);
+                    }
+
+                    bool first = true;
+                    foreach (var kv in perCat)
+                    {
+                        if (!first) panel.Source.Items.Add(new RibbonSeparator());
+                        first = false;
+                        foreach (var s in kv.Value)
+                        {
+                            var nome = (string?)s["nome"] ?? "?";
+                            // Usa il comando generico con argomento (NON disponibile per CommandMethod attributo)
+                            // Lanciamo invece INSERISCI_DA_LIBRERIA e l'utente digita il nome
+                            // Soluzione migliore: scriviamo direttamente il nome simbolo nel buffer
+                            panel.Source.Items.Add(new RibbonButton
+                            {
+                                Text = TruncateLabel(nome),
+                                ShowText = true,
+                                ShowImage = false,
+                                Size = RibbonItemSize.Standard,
+                                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                                CommandHandler = new InsertSymbolHandler(s),
+                                MinWidth = 100,
+                            });
+                        }
+                    }
+                });
+            }
+            catch (Exception ex) { Logger.Log("LoadDynamicSymbols: " + ex.Message); }
+        }
+
+        private static string TruncateLabel(string s) => s.Length > 20 ? s.Substring(0, 18) + "…" : s;
 
         private static RibbonPanel MkPanel(string title, params RibbonItem[] items)
         {
-            var p = new RibbonPanel
-            { Source = new RibbonPanelSource { Title = title } };
+            var p = new RibbonPanel { Source = new RibbonPanelSource { Title = title } };
             foreach (var item in items) p.Source.Items.Add(item);
             return p;
         }
 
         private static RibbonButton MkBig(string text, string cmd) => new RibbonButton
         {
-            Text = text, Size = RibbonItemSize.Large, ShowText = true,
+            Text = text, ShowText = true, ShowImage = false,
+            Size = RibbonItemSize.Large,
             Orientation = System.Windows.Controls.Orientation.Vertical,
-            CommandHandler = new RibbonCmd(cmd)
+            CommandHandler = new RibbonCommandHandler(cmd),
+            CommandParameter = cmd,
         };
 
         private static RibbonButton MkSm(string text, string cmd) => new RibbonButton
         {
-            Text = text, Size = RibbonItemSize.Standard, ShowText = true,
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
-            CommandHandler = new RibbonCmd(cmd)
+            Text = text, ShowText = true, ShowImage = false,
+            Size = RibbonItemSize.Standard,
+            CommandHandler = new RibbonCommandHandler(cmd),
+            CommandParameter = cmd,
         };
     }
 
-    public class RibbonCmd : System.Windows.Input.ICommand
+    /// <summary>Handler generico ribbon: lancia comando AutoCAD.</summary>
+    public class RibbonCommandHandler : System.Windows.Input.ICommand
     {
         private readonly string _cmd;
-        public RibbonCmd(string cmd) { _cmd = cmd; }
-        public bool CanExecute(object? p) => true;
-        public void Execute(object? p)
-        {
-            var doc = Autodesk.AutoCAD.ApplicationServices.Application
-                .DocumentManager.MdiActiveDocument;
-            doc?.SendStringToExecute(_cmd + "\n", true, false, false);
-        }
+        public RibbonCommandHandler(string cmd) { _cmd = cmd; }
         public event EventHandler? CanExecuteChanged;
+        public bool CanExecute(object? parameter) => !string.IsNullOrEmpty(_cmd);
+        public void Execute(object? parameter)
+        {
+            if (string.IsNullOrEmpty(_cmd)) return;
+            var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+            if (doc != null) doc.SendStringToExecute(_cmd + " ", true, false, true);
+        }
+    }
+
+    /// <summary>Handler specifico inserisci simbolo (passa nome simbolo al comando AutoCAD).</summary>
+    public class InsertSymbolHandler : System.Windows.Input.ICommand
+    {
+        private readonly JObject _simbolo;
+        public InsertSymbolHandler(JObject simbolo) { _simbolo = simbolo; }
+        public event EventHandler? CanExecuteChanged;
+        public bool CanExecute(object? parameter) => true;
+        public void Execute(object? parameter)
+        {
+            var doc = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+            var pPoint = new Autodesk.AutoCAD.EditorInput.PromptPointOptions($"\nInserisci '{_simbolo["nome"]}': ");
+            var pRes = ed.GetPoint(pPoint);
+            if (pRes.Status != Autodesk.AutoCAD.EditorInput.PromptStatus.OK) return;
+            try
+            {
+                SymbolLibrary.InserisciSimbolo(_simbolo, pRes.Value);
+                ed.WriteMessage($"\n✅ {_simbolo["nome"]} inserito.\n");
+            }
+            catch (Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
+        }
     }
 }
