@@ -301,77 +301,67 @@ namespace ImplantiAI
         }
 
         // ================================================================
-        //  GENERATE THUMBNAIL — usa l'API nativa di AutoCAD per generare
-        //  un PNG WYSIWYG del simbolo. Crea un BlockTableRecord temporaneo,
-        //  clona le entità dentro, estrae PreviewIcon (System.Drawing.Bitmap)
-        //  e cancella il blocco. Il risultato è IDENTICO a quello che vedi
-        //  nel disegno.
+        //  GENERATE THUMBNAIL — strategia "save & reload":
+        //  1) Wblock le entità in un Database temporaneo
+        //  2) SaveAs su file .dwg → AutoCAD genera la ThumbnailBitmap auto
+        //  3) ReadDwgFile da un nuovo Database → leggiamo Thumbnail
+        //  4) Cleanup file temp
         //
-        //  Ritorna i bytes PNG, oppure null se l'API PreviewIcon ritorna
-        //  null (puo' succedere su blocchi appena creati: in quel caso il
-        //  chiamante usa fallback al vector render).
+        //  Tentato prima BlockTableRecord.PreviewIcon: ritorna null per
+        //  blocchi appena creati in sessione (AutoCAD genera le preview
+        //  solo al save del DWG). Quindi usiamo questo trick documentato.
         // ================================================================
         public static byte[]? GenerateThumbnail(IEnumerable<ObjectId> ids, Database db)
         {
-            string blockName = "_ANG_PREV_" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            Bitmap? icon = null;
-            ObjectId blockId = ObjectId.Null;
+            var tmpFile = Path.Combine(Path.GetTempPath(),
+                "ang_preview_" + Guid.NewGuid().ToString("N") + ".dwg");
+            Bitmap? thumb = null;
 
             try
             {
-                // Step 1: crea il blocco temporaneo + clona le entità
-                using (var tr = db.TransactionManager.StartTransaction())
+                // 1+2: wblock e salva su disco. Wblock crea un Database in
+                // memoria contenente le entità clonate nel ModelSpace.
+                // SaveAs trigghera la generazione automatica della thumbnail.
+                using (var wDb = db.Wblock(new ObjectIdCollection(ids.ToArray()), Point3d.Origin))
                 {
-                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
-                    var btr = new BlockTableRecord { Name = blockName };
-                    blockId = bt.Add(btr);
-                    tr.AddNewlyCreatedDBObject(btr, true);
-
-                    var idColl = new ObjectIdCollection(ids.ToArray());
-                    var mapping = new IdMapping();
-                    db.DeepCloneObjects(idColl, blockId, mapping, false);
-
-                    tr.Commit();
+                    wDb.SaveAs(tmpFile, DwgVersion.Current);
+                    Logger.Log("GenerateThumbnail: wblock+save OK -> " + tmpFile);
                 }
 
-                // Step 2: estrai PreviewIcon. AutoCAD popola la preview
-                // automaticamente alla creazione del BlockTableRecord.
-                using (var tr = db.TransactionManager.StartTransaction())
+                // 3: riapri il file in un nuovo Database, AutoCAD popola
+                // ThumbnailBitmap durante ReadDwgFile.
+                using (var rDb = new Database(false, true))
                 {
-                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForRead);
-                    try { icon = btr.PreviewIcon; }
-                    catch (System.Exception ex) { Logger.Log("GenerateThumbnail PreviewIcon: " + ex.Message); }
-                    tr.Commit();
+                    rDb.ReadDwgFile(tmpFile, FileShare.ReadWrite, false, null);
+                    if (rDb.ThumbnailBitmap != null)
+                    {
+                        // Clone della bitmap: rDb verrà disposed alla fine dello using
+                        thumb = new Bitmap(rDb.ThumbnailBitmap);
+                    }
                 }
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Log("GenerateThumbnail wblock+save: " + ex.Message);
             }
             finally
             {
-                // Step 3: cleanup — cancella il blocco temporaneo
-                if (blockId != ObjectId.Null)
-                {
-                    try
-                    {
-                        using var tr = db.TransactionManager.StartTransaction();
-                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
-                        btr.Erase();
-                        tr.Commit();
-                    }
-                    catch (System.Exception ex) { Logger.Log("GenerateThumbnail cleanup: " + ex.Message); }
-                }
+                try { if (File.Exists(tmpFile)) File.Delete(tmpFile); } catch { }
             }
 
-            if (icon == null)
+            if (thumb == null)
             {
-                Logger.Log("GenerateThumbnail: PreviewIcon null, fallback al vector render");
+                Logger.Log("GenerateThumbnail: ThumbnailBitmap null dopo save+reload, fallback vector");
                 return null;
             }
 
             try
             {
                 using var ms = new MemoryStream();
-                icon.Save(ms, ImageFormat.Png);
+                thumb.Save(ms, ImageFormat.Png);
                 var bytes = ms.ToArray();
-                Logger.Log($"GenerateThumbnail: PNG generato {bytes.Length} bytes ({icon.Width}×{icon.Height})");
+                Logger.Log($"GenerateThumbnail save+reload: PNG {bytes.Length} bytes ({thumb.Width}×{thumb.Height})");
+                thumb.Dispose();
                 return bytes;
             }
             catch (System.Exception ex)
