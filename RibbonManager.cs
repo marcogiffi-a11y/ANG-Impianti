@@ -132,11 +132,14 @@ namespace ImplantiAI
                         foreach (var s in kv.Value)
                         {
                             var nome = (string?)s["nome"] ?? "?";
+                            var preview = SymbolLibrary.RenderPreview(s, 32);
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),
                                 ShowText = true,
-                                ShowImage = false,
+                                ShowImage = preview != null,
+                                Image = preview,
+                                LargeImage = preview,
                                 Size = RibbonItemSize.Standard,
                                 Orientation = System.Windows.Controls.Orientation.Horizontal,
                                 CommandHandler = new InsertSymbolHandler(s),

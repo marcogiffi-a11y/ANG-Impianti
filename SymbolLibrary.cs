@@ -7,6 +7,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace ImplantiAI
 {
@@ -199,6 +202,119 @@ namespace ImplantiAI
             if (angle == 0) return p;
             double cos = Math.Cos(angle), sin = Math.Sin(angle);
             return new Point3d(p.X * cos - p.Y * sin, p.X * sin + p.Y * cos, p.Z);
+        }
+
+        // ================================================================
+        //  RENDER PREVIEW — converte la geometria salvata in una BitmapSource
+        //  WPF da usare come icona nel bottone ribbon. Dimensione tipica 32x32
+        //  per RibbonItemSize.Standard; ridimensionata automaticamente al bbox.
+        //
+        //  Coordinate AutoCAD: Y verso l'alto. WPF: Y verso il basso. Quindi
+        //  applichiamo ScaleY = -scale per riflettere verticalmente.
+        // ================================================================
+        public static BitmapSource? RenderPreview(JObject simbolo, int size = 32)
+        {
+            try
+            {
+                var entities = simbolo["geometria"]?["entities"] as JArray;
+                if (entities == null || entities.Count == 0) return null;
+
+                var bboxW = (double?)simbolo["geometria"]?["bbox_w"] ?? 1.0;
+                var bboxH = (double?)simbolo["geometria"]?["bbox_h"] ?? 1.0;
+                var maxDim = Math.Max(bboxW, bboxH);
+                if (maxDim <= 0.0001) maxDim = 1.0;
+
+                double padding = 3.0;
+                double scale = (size - 2 * padding) / maxDim;
+
+                var dv = new DrawingVisual();
+                using (var dc = dv.RenderOpen())
+                {
+                    var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.2)
+                    {
+                        StartLineCap = PenLineCap.Round,
+                        EndLineCap = PenLineCap.Round,
+                    };
+                    pen.Freeze();
+
+                    // Trasformazione: centra in (size/2, size/2), scala, riflette Y.
+                    var tg = new TransformGroup();
+                    tg.Children.Add(new ScaleTransform(scale, -scale));
+                    tg.Children.Add(new TranslateTransform(size / 2.0, size / 2.0));
+                    dc.PushTransform(tg);
+
+                    foreach (JObject e in entities)
+                    {
+                        var type = (string?)e["type"];
+                        try
+                        {
+                            if (type == "Line")
+                            {
+                                dc.DrawLine(pen,
+                                    new System.Windows.Point((double)e["x1"]!, (double)e["y1"]!),
+                                    new System.Windows.Point((double)e["x2"]!, (double)e["y2"]!));
+                            }
+                            else if (type == "Circle")
+                            {
+                                dc.DrawEllipse(null, pen,
+                                    new System.Windows.Point((double)e["x"]!, (double)e["y"]!),
+                                    (double)e["r"]!, (double)e["r"]!);
+                            }
+                            else if (type == "Arc")
+                            {
+                                // Approssimazione: 12 segmenti
+                                double cx = (double)e["x"]!, cy = (double)e["y"]!, r = (double)e["r"]!;
+                                double a0 = (double)e["start"]!, a1 = (double)e["end"]!;
+                                if (a1 < a0) a1 += 2 * Math.PI;
+                                int seg = 12;
+                                for (int i = 0; i < seg; i++)
+                                {
+                                    double t1 = a0 + (a1 - a0) * i / seg;
+                                    double t2 = a0 + (a1 - a0) * (i + 1) / seg;
+                                    dc.DrawLine(pen,
+                                        new System.Windows.Point(cx + r * Math.Cos(t1), cy + r * Math.Sin(t1)),
+                                        new System.Windows.Point(cx + r * Math.Cos(t2), cy + r * Math.Sin(t2)));
+                                }
+                            }
+                            else if (type == "Polyline")
+                            {
+                                var verts = e["vertices"] as JArray;
+                                if (verts != null && verts.Count >= 2)
+                                {
+                                    for (int i = 0; i < verts.Count - 1; i++)
+                                    {
+                                        var v1 = (JObject)verts[i]!;
+                                        var v2 = (JObject)verts[i + 1]!;
+                                        dc.DrawLine(pen,
+                                            new System.Windows.Point((double)v1["x"]!, (double)v1["y"]!),
+                                            new System.Windows.Point((double)v2["x"]!, (double)v2["y"]!));
+                                    }
+                                    if ((bool?)e["closed"] == true && verts.Count >= 3)
+                                    {
+                                        var vF = (JObject)verts[0]!;
+                                        var vL = (JObject)verts[verts.Count - 1]!;
+                                        dc.DrawLine(pen,
+                                            new System.Windows.Point((double)vL["x"]!, (double)vL["y"]!),
+                                            new System.Windows.Point((double)vF["x"]!, (double)vF["y"]!));
+                                    }
+                                }
+                            }
+                        }
+                        catch { /* salta entità malformata */ }
+                    }
+                    dc.Pop();
+                }
+
+                var rtb = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+                rtb.Render(dv);
+                rtb.Freeze();
+                return rtb;
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Log("RenderPreview: " + ex.Message);
+                return null;
+            }
         }
     }
 }
