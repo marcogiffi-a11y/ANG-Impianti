@@ -132,7 +132,9 @@ namespace ImplantiAI
                         foreach (var s in kv.Value)
                         {
                             var nome = (string?)s["nome"] ?? "?";
-                            var preview = SymbolLibrary.RenderPreview(s, 32);
+                            // Preview 64x64 generata dalle geometrie: layout grande
+                            // (icona sopra, testo sotto) per leggibilità migliore.
+                            var preview = SymbolLibrary.RenderPreview(s, 64);
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),
@@ -140,10 +142,10 @@ namespace ImplantiAI
                                 ShowImage = preview != null,
                                 Image = preview,
                                 LargeImage = preview,
-                                Size = RibbonItemSize.Standard,
-                                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                                Size = RibbonItemSize.Large,
+                                Orientation = System.Windows.Controls.Orientation.Vertical,
                                 CommandHandler = new InsertSymbolHandler(s),
-                                MinWidth = 100,
+                                MinWidth = 70,
                             });
                         }
                     }

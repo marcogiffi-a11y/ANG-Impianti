@@ -43,55 +43,7 @@ namespace ImplantiAI
             {
                 var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                 if (ent == null) continue;
-                JObject? e = null;
-                if (ent is Line l)
-                {
-                    e = new JObject {
-                        ["type"] = "Line",
-                        ["x1"] = l.StartPoint.X - cx, ["y1"] = l.StartPoint.Y - cy,
-                        ["x2"] = l.EndPoint.X - cx,   ["y2"] = l.EndPoint.Y - cy,
-                    };
-                }
-                else if (ent is Circle c)
-                {
-                    e = new JObject {
-                        ["type"] = "Circle",
-                        ["x"] = c.Center.X - cx, ["y"] = c.Center.Y - cy,
-                        ["r"] = c.Radius,
-                    };
-                }
-                else if (ent is Arc a)
-                {
-                    e = new JObject {
-                        ["type"] = "Arc",
-                        ["x"] = a.Center.X - cx, ["y"] = a.Center.Y - cy,
-                        ["r"] = a.Radius,
-                        ["start"] = a.StartAngle, ["end"] = a.EndAngle,
-                    };
-                }
-                else if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline pl)
-                {
-                    // Polyline 2D (LWPolyline, comando RECTANG o PLINE).
-                    // Salviamo i vertici come array di {x, y, bulge}: il bulge >0
-                    // significa arco (mezza-tangente = tan(angolo/4)), evita di
-                    // perdere informazione su rettangoli arrotondati / archi inseriti.
-                    var verts = new JArray();
-                    for (int i = 0; i < pl.NumberOfVertices; i++)
-                    {
-                        var p = pl.GetPoint2dAt(i);
-                        verts.Add(new JObject {
-                            ["x"] = p.X - cx,
-                            ["y"] = p.Y - cy,
-                            ["bulge"] = pl.GetBulgeAt(i),
-                        });
-                    }
-                    e = new JObject {
-                        ["type"] = "Polyline",
-                        ["closed"] = pl.Closed,
-                        ["vertices"] = verts,
-                    };
-                }
-                if (e != null) entities.Add(e);
+                ConvertEntity(ent, cx, cy, entities);
             }
             tr.Commit();
 
@@ -101,6 +53,112 @@ namespace ImplantiAI
                 ["bbox_h"] = maxY - minY,
                 ["count"] = entities.Count,
             };
+        }
+
+        /// <summary>
+        /// Converte una singola entità in un JObject e la appende ad `out`.
+        /// Per BlockReference esplode (a livello logico, copia in memoria) e
+        /// ricorre sui figli — così frecce, blocchi-simbolo, riferimenti
+        /// annidati diventano geometria piatta nel simbolo salvato.
+        /// </summary>
+        private static void ConvertEntity(Entity ent, double cx, double cy, JArray output)
+        {
+            JObject? e = null;
+            if (ent is Line l)
+            {
+                e = new JObject {
+                    ["type"] = "Line",
+                    ["x1"] = l.StartPoint.X - cx, ["y1"] = l.StartPoint.Y - cy,
+                    ["x2"] = l.EndPoint.X - cx,   ["y2"] = l.EndPoint.Y - cy,
+                };
+            }
+            else if (ent is Circle c)
+            {
+                e = new JObject {
+                    ["type"] = "Circle",
+                    ["x"] = c.Center.X - cx, ["y"] = c.Center.Y - cy,
+                    ["r"] = c.Radius,
+                };
+            }
+            else if (ent is Arc a)
+            {
+                e = new JObject {
+                    ["type"] = "Arc",
+                    ["x"] = a.Center.X - cx, ["y"] = a.Center.Y - cy,
+                    ["r"] = a.Radius,
+                    ["start"] = a.StartAngle, ["end"] = a.EndAngle,
+                };
+            }
+            else if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline pl)
+            {
+                // Polyline 2D (LWPolyline, comando RECTANG o PLINE).
+                var verts = new JArray();
+                for (int i = 0; i < pl.NumberOfVertices; i++)
+                {
+                    var p = pl.GetPoint2dAt(i);
+                    verts.Add(new JObject {
+                        ["x"] = p.X - cx,
+                        ["y"] = p.Y - cy,
+                        ["bulge"] = pl.GetBulgeAt(i),
+                    });
+                }
+                e = new JObject {
+                    ["type"] = "Polyline",
+                    ["closed"] = pl.Closed,
+                    ["vertices"] = verts,
+                };
+            }
+            else if (ent is DBText txt)
+            {
+                // TEXT singola riga: sigle, etichette, valori (es. 'KWh', 'F1', '16A').
+                e = new JObject {
+                    ["type"] = "Text",
+                    ["x"] = txt.Position.X - cx,
+                    ["y"] = txt.Position.Y - cy,
+                    ["content"] = txt.TextString ?? "",
+                    ["height"] = txt.Height,
+                    ["rotation"] = txt.Rotation,
+                };
+            }
+            else if (ent is MText mtxt)
+            {
+                // MText: prendiamo solo il testo "raw" (senza i codici di formattazione
+                // {\fXXX;}). Per i simboli quasi sempre basta — etichette brevi.
+                var raw = mtxt.Contents ?? "";
+                // Rimuove i codici di formattazione tipici (\\fArial; \\C1; \\L \\l ecc.)
+                raw = System.Text.RegularExpressions.Regex.Replace(raw, @"\\[A-Za-z][^;]*;", "");
+                raw = raw.Replace("\\P", "\n").Replace("{", "").Replace("}", "");
+                e = new JObject {
+                    ["type"] = "Text",
+                    ["x"] = mtxt.Location.X - cx,
+                    ["y"] = mtxt.Location.Y - cy,
+                    ["content"] = raw,
+                    ["height"] = mtxt.TextHeight,
+                    ["rotation"] = mtxt.Rotation,
+                };
+            }
+            else if (ent is BlockReference br)
+            {
+                // Esplode il blocco virtualmente: produce una collezione in-memory
+                // di entità "child" non-database, già trasformate nelle coordinate
+                // world del blocco. Le processiamo ricorsivamente.
+                try
+                {
+                    var children = new DBObjectCollection();
+                    br.Explode(children);
+                    foreach (DBObject obj in children)
+                    {
+                        if (obj is Entity childEnt) ConvertEntity(childEnt, cx, cy, output);
+                        obj.Dispose();
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    Logger.Log("ConvertEntity BlockReference: " + ex.Message);
+                }
+                return;  // nessun JObject diretto: i child sono già stati aggiunti
+            }
+            if (e != null) output.Add(e);
         }
 
         /// <summary>Salva un nuovo simbolo su Supabase.</summary>
@@ -185,6 +243,18 @@ namespace ImplantiAI
                         pl.Closed = (bool?)e["closed"] ?? false;
                         ent = pl;
                     }
+                    else if (type == "Text")
+                    {
+                        var p = Rotate(new Point3d((double)e["x"]!, (double)e["y"]!, 0), rotazione) + pos.GetAsVector();
+                        var txt = new DBText
+                        {
+                            Position = p,
+                            TextString = (string?)e["content"] ?? "",
+                            Height = (double?)e["height"] ?? 2.5,
+                            Rotation = ((double?)e["rotation"] ?? 0.0) + rotazione,
+                        };
+                        ent = txt;
+                    }
                     if (ent != null)
                     {
                         ent.Layer = layerNome.StartsWith("ANG_") ? layerNome : "ANG_" + layerNome;
@@ -211,7 +281,7 @@ namespace ImplantiAI
         //  Coordinate AutoCAD: Y verso l'alto. WPF: Y verso il basso. Quindi
         //  applichiamo ScaleY = -scale per riflettere verticalmente.
         // ================================================================
-        public static BitmapSource? RenderPreview(JObject simbolo, int size = 32)
+        public static BitmapSource? RenderPreview(JObject simbolo, int size = 64)
         {
             try
             {
@@ -223,13 +293,15 @@ namespace ImplantiAI
                 var maxDim = Math.Max(bboxW, bboxH);
                 if (maxDim <= 0.0001) maxDim = 1.0;
 
-                double padding = 3.0;
+                double padding = size * 0.08;          // 8% di margine intorno
                 double scale = (size - 2 * padding) / maxDim;
 
                 var dv = new DrawingVisual();
                 using (var dc = dv.RenderOpen())
                 {
-                    var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.2)
+                    // Pen più sottile: lo spessore visivo va calcolato in unità AutoCAD
+                    // (post-scaling): 1.2 px / scale = grandezza in unità del simbolo
+                    var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.2 / scale)
                     {
                         StartLineCap = PenLineCap.Round,
                         EndLineCap = PenLineCap.Round,
@@ -297,6 +369,33 @@ namespace ImplantiAI
                                             new System.Windows.Point((double)vF["x"]!, (double)vF["y"]!));
                                     }
                                 }
+                            }
+                            else if (type == "Text")
+                            {
+                                // Render del testo. Lo disegniamo con scala già applicata
+                                // dal TransformGroup esterno, quindi qui usiamo size in
+                                // unità AutoCAD originali. FormattedText con FlowDirection
+                                // standard, riflesso poi dal ScaleY negativo del transform.
+                                var content = (string?)e["content"] ?? "";
+                                if (string.IsNullOrEmpty(content)) continue;
+                                var h = (double?)e["height"] ?? 2.5;
+                                if (h <= 0) h = 2.5;
+                                var ft = new FormattedText(
+                                    content,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    System.Windows.FlowDirection.LeftToRight,
+                                    new Typeface("Arial"),
+                                    h,
+                                    System.Windows.Media.Brushes.White,
+                                    1.0);
+                                // Il transform esterno ha ScaleY=-scale, quindi il testo
+                                // verrebbe disegnato a testa in giù. Compensiamo con un
+                                // sub-transform locale che riflette di nuovo (così appare dritto).
+                                dc.PushTransform(new ScaleTransform(1, -1,
+                                    (double)e["x"]!, (double)e["y"]!));
+                                dc.DrawText(ft, new System.Windows.Point(
+                                    (double)e["x"]!, (double)e["y"]! - h));  // y - h: baseline AutoCAD
+                                dc.Pop();
                             }
                         }
                         catch { /* salta entità malformata */ }
