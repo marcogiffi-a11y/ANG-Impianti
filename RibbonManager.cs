@@ -52,6 +52,7 @@ namespace ImplantiAI
             var dynamicPanel = MkPanel("Simboli (libreria)",
                 MkSm("Caricamento...", ""));
             tab.Panels.Add(dynamicPanel);
+            _dynamicPanel = dynamicPanel;  // memorizza per refresh dopo AGGIUNGI_SIMBOLO
 
             rc.Tabs.Add(tab);
             tab.IsActive = true;
@@ -60,17 +61,49 @@ namespace ImplantiAI
             _ = LoadDynamicSymbols(dynamicPanel);
         }
 
+        // Riferimento statico al panel dinamico: serve a RefreshSymbolsPanel
+        // per ricaricare i simboli senza riavviare AutoCAD.
+        private static RibbonPanel? _dynamicPanel;
+
+        /// <summary>
+        /// Ricarica il panel "Simboli (libreria)" da Supabase. Chiamato da
+        /// AggiungiSimboloCommand dopo un salvataggio andato a buon fine.
+        /// </summary>
+        public static Task RefreshSymbolsPanel()
+        {
+            if (_dynamicPanel == null) return Task.CompletedTask;
+            return LoadDynamicSymbols(_dynamicPanel);
+        }
+
         private static async Task LoadDynamicSymbols(RibbonPanel panel)
         {
-            try
-            {
-                var simboli = await SymbolLibrary.CaricaSimboli();
-                if (simboli.Count == 0) return;
+            JArray simboli;
+            string? errore = null;
+            try { simboli = await SymbolLibrary.CaricaSimboli(); }
+            catch (Exception ex) { simboli = new JArray(); errore = ex.Message; Logger.Log("LoadDynamicSymbols: " + ex.Message); }
 
-                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            {
+                try
                 {
                     panel.Source.Items.Clear();
+
+                    if (errore != null)
+                    {
+                        // Stato di errore: utente sa che è una libreria irraggiungibile, non un caricamento eterno
+                        panel.Source.Title = "Simboli (errore)";
+                        panel.Source.Items.Add(MkSm("⚠ Verifica config", ""));
+                        return;
+                    }
+
                     panel.Source.Title = $"Simboli ({simboli.Count})";
+
+                    if (simboli.Count == 0)
+                    {
+                        // Libreria vuota: messaggio chiaro invece di placeholder muto
+                        panel.Source.Items.Add(MkSm("(vuota — usa AGGIUNGI_SIMBOLO)", ""));
+                        return;
+                    }
 
                     // Raggruppa per categoria
                     var perCat = new Dictionary<string, List<JObject>>();
@@ -89,9 +122,6 @@ namespace ImplantiAI
                         foreach (var s in kv.Value)
                         {
                             var nome = (string?)s["nome"] ?? "?";
-                            // Usa il comando generico con argomento (NON disponibile per CommandMethod attributo)
-                            // Lanciamo invece INSERISCI_DA_LIBRERIA e l'utente digita il nome
-                            // Soluzione migliore: scriviamo direttamente il nome simbolo nel buffer
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),
@@ -104,9 +134,9 @@ namespace ImplantiAI
                             });
                         }
                     }
-                });
-            }
-            catch (Exception ex) { Logger.Log("LoadDynamicSymbols: " + ex.Message); }
+                }
+                catch (Exception uiEx) { Logger.Log("LoadDynamicSymbols UI: " + uiEx.Message); }
+            });
         }
 
         private static string TruncateLabel(string s) => s.Length > 20 ? s.Substring(0, 18) + "…" : s;

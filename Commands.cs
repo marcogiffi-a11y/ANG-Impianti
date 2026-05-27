@@ -118,9 +118,17 @@ namespace ImplantiAI
             // Salva
             ed.WriteMessage("\n💾 Salvataggio simbolo su Supabase...");
             bool ok = await SymbolLibrary.SalvaSimbolo(nomeRes.StringResult, catRes.StringResult, geometria, layerNome);
-            ed.WriteMessage(ok
-                ? $"\n✅ Simbolo '{nomeRes.StringResult}' salvato in libreria ({catRes.StringResult}).\n   Riavvia AutoCAD per vedere il nuovo pulsante in ribbon.\n"
-                : "\n⚠ Errore salvataggio simbolo.\n");
+            if (ok)
+            {
+                ed.WriteMessage($"\n✅ Simbolo '{nomeRes.StringResult}' salvato in libreria ({catRes.StringResult}).\n");
+                // Ricarica il panel ribbon così il bottone appare subito, senza riavviare AutoCAD
+                try { await RibbonManager.RefreshSymbolsPanel(); }
+                catch (System.Exception rEx) { Logger.Log("RefreshSymbolsPanel: " + rEx.Message); }
+            }
+            else
+            {
+                ed.WriteMessage("\n⚠ Errore salvataggio simbolo (vedi %APPDATA%\\ANGImpianti\\plugin.log).\n");
+            }
         }
 
         [CommandMethod("LIBRERIA_SIMBOLI")]

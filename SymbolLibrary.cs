@@ -67,6 +67,28 @@ namespace ImplantiAI
                         ["start"] = a.StartAngle, ["end"] = a.EndAngle,
                     };
                 }
+                else if (ent is Autodesk.AutoCAD.DatabaseServices.Polyline pl)
+                {
+                    // Polyline 2D (LWPolyline, comando RECTANG o PLINE).
+                    // Salviamo i vertici come array di {x, y, bulge}: il bulge >0
+                    // significa arco (mezza-tangente = tan(angolo/4)), evita di
+                    // perdere informazione su rettangoli arrotondati / archi inseriti.
+                    var verts = new JArray();
+                    for (int i = 0; i < pl.NumberOfVertices; i++)
+                    {
+                        var p = pl.GetPoint2dAt(i);
+                        verts.Add(new JObject {
+                            ["x"] = p.X - cx,
+                            ["y"] = p.Y - cy,
+                            ["bulge"] = pl.GetBulgeAt(i),
+                        });
+                    }
+                    e = new JObject {
+                        ["type"] = "Polyline",
+                        ["closed"] = pl.Closed,
+                        ["vertices"] = verts,
+                    };
+                }
                 if (e != null) entities.Add(e);
             }
             tr.Commit();
@@ -147,6 +169,19 @@ namespace ImplantiAI
                     {
                         var c = Rotate(new Point3d((double)e["x"]!, (double)e["y"]!, 0), rotazione) + pos.GetAsVector();
                         ent = new Arc(c, (double)e["r"]!, (double)e["start"]! + rotazione, (double)e["end"]! + rotazione);
+                    }
+                    else if (type == "Polyline")
+                    {
+                        var pl = new Autodesk.AutoCAD.DatabaseServices.Polyline();
+                        var verts = e["vertices"] as JArray ?? new JArray();
+                        for (int i = 0; i < verts.Count; i++)
+                        {
+                            var v = (JObject)verts[i];
+                            var p3 = Rotate(new Point3d((double)v["x"]!, (double)v["y"]!, 0), rotazione) + pos.GetAsVector();
+                            pl.AddVertexAt(i, new Point2d(p3.X, p3.Y), (double?)v["bulge"] ?? 0.0, 0, 0);
+                        }
+                        pl.Closed = (bool?)e["closed"] ?? false;
+                        ent = pl;
                     }
                     if (ent != null)
                     {
