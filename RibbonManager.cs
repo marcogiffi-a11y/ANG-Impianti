@@ -176,6 +176,22 @@ namespace ImplantiAI
                                 preview = SymbolLibrary.RenderPreview(s, 96);
                             if (preview == null)
                                 Logger.Log($"Ribbon button '{nome}': preview NULL (no preview_url, no vector)");
+
+                            // ToolTip con preview ingrandita a 256x256 e metadati.
+                            // Compare al hover (~1s di delay), molto utile per vedere
+                            // i dettagli del simbolo prima di inserirlo.
+                            var tooltipBig = SymbolLibrary.RenderPreview(s, 256);
+                            var categoria = (string?)s["categoria"] ?? "?";
+                            var layer = (string?)s["layer_nome"] ?? "?";
+                            var ne = (string?)s["num_entities"] ?? "?";
+                            var rt = new RibbonToolTip
+                            {
+                                Title = nome,
+                                Content = $"Categoria: {categoria}\nLayer: {layer}\nEntità: {ne}\n\nClicca per inserire nel disegno.",
+                                Image = tooltipBig,
+                                IsHelpEnabled = false,  // disabilita F1
+                            };
+
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),
@@ -187,6 +203,7 @@ namespace ImplantiAI
                                 Orientation = System.Windows.Controls.Orientation.Vertical,
                                 CommandHandler = new InsertSymbolHandler(s),
                                 MinWidth = 70,
+                                ToolTip = rt,
                             });
                         }
                     }
