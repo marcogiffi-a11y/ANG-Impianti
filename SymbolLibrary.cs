@@ -110,14 +110,22 @@ namespace ImplantiAI
             }
             else if (ent is DBText txt)
             {
-                // TEXT singola riga: sigle, etichette, valori (es. 'KWh', 'F1', '16A').
+                // TEXT singola riga. In AutoCAD, se HorizontalMode != Left o
+                // VerticalMode != Base, l'anchor visivo è AlignmentPoint, non
+                // Position. Salviamo l'anchor effettivo + i flag di allineamento
+                // così la ricostruzione in altri contesti è fedele.
+                bool aligned = txt.HorizontalMode != TextHorizontalMode.TextLeft
+                            || txt.VerticalMode != TextVerticalMode.TextBase;
+                var anchor = aligned ? txt.AlignmentPoint : txt.Position;
                 e = new JObject {
                     ["type"] = "Text",
-                    ["x"] = txt.Position.X - cx,
-                    ["y"] = txt.Position.Y - cy,
+                    ["x"] = anchor.X - cx,
+                    ["y"] = anchor.Y - cy,
                     ["content"] = txt.TextString ?? "",
                     ["height"] = txt.Height,
                     ["rotation"] = txt.Rotation,
+                    ["halign"] = (int)txt.HorizontalMode,  // 0=Left 1=Center 2=Right 3=Aligned 4=Middle 5=Fit
+                    ["valign"] = (int)txt.VerticalMode,    // 0=Base 1=Bottom 2=Mid 3=Top
                 };
             }
             else if (ent is MText mtxt)
@@ -125,7 +133,6 @@ namespace ImplantiAI
                 // MText: prendiamo solo il testo "raw" (senza i codici di formattazione
                 // {\fXXX;}). Per i simboli quasi sempre basta — etichette brevi.
                 var raw = mtxt.Contents ?? "";
-                // Rimuove i codici di formattazione tipici (\\fArial; \\C1; \\L \\l ecc.)
                 raw = System.Text.RegularExpressions.Regex.Replace(raw, @"\\[A-Za-z][^;]*;", "");
                 raw = raw.Replace("\\P", "\n").Replace("{", "").Replace("}", "");
                 e = new JObject {
@@ -135,6 +142,7 @@ namespace ImplantiAI
                     ["content"] = raw,
                     ["height"] = mtxt.TextHeight,
                     ["rotation"] = mtxt.Rotation,
+                    ["attachment"] = (int)mtxt.Attachment,  // TopLeft=1 TopCenter=2 MiddleCenter=5 ecc
                 };
             }
             else if (ent is BlockReference br)
@@ -246,13 +254,28 @@ namespace ImplantiAI
                     else if (type == "Text")
                     {
                         var p = Rotate(new Point3d((double)e["x"]!, (double)e["y"]!, 0), rotazione) + pos.GetAsVector();
+                        var halign = (int?)e["halign"] ?? 0;
+                        var valign = (int?)e["valign"] ?? 0;
                         var txt = new DBText
                         {
-                            Position = p,
                             TextString = (string?)e["content"] ?? "",
                             Height = (double?)e["height"] ?? 2.5,
                             Rotation = ((double?)e["rotation"] ?? 0.0) + rotazione,
+                            HorizontalMode = (TextHorizontalMode)halign,
+                            VerticalMode = (TextVerticalMode)valign,
                         };
+                        // Se il testo è centrato, l'anchor visivo è AlignmentPoint.
+                        // Position deve comunque essere assegnata (AutoCAD la usa
+                        // come fallback) ma l'AlignmentPoint determina la posizione effettiva.
+                        if (halign != 0 || valign != 0)
+                        {
+                            txt.Position = p;
+                            txt.AlignmentPoint = p;
+                        }
+                        else
+                        {
+                            txt.Position = p;
+                        }
                         ent = txt;
                     }
                     if (ent != null)
@@ -305,15 +328,14 @@ namespace ImplantiAI
                 var dv = new DrawingVisual();
                 using (var dc = dv.RenderOpen())
                 {
-                    // Pen spessore fisso a 2px nello spazio finale (canvas).
-                    // Dato che il transform applica scale, lo spessore in unità
-                    // del coordinate space del simbolo va diviso per scale.
-                    double penWidth = 2.0 / Math.Max(scale, 0.0001);
+                    // Pen sottile per leggibilità su simboli con molti dettagli.
+                    // 1.0px nel canvas finale: nelle unità AutoCAD = 1.0/scale.
+                    double penWidth = 1.0 / Math.Max(scale, 0.0001);
                     var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, penWidth)
                     {
                         StartLineCap = PenLineCap.Round,
                         EndLineCap = PenLineCap.Round,
-                        LineJoin = PenLineJoin.Round,
+                        LineJoin = PenLineJoin.Miter,
                     };
                     pen.Freeze();
 
@@ -381,14 +403,15 @@ namespace ImplantiAI
                             }
                             else if (type == "Text")
                             {
-                                // Render del testo. Lo disegniamo con scala già applicata
-                                // dal TransformGroup esterno, quindi qui usiamo size in
-                                // unità AutoCAD originali. FormattedText con FlowDirection
-                                // standard, riflesso poi dal ScaleY negativo del transform.
+                                // Render del testo centrato sul suo anchor point.
+                                // Default: centro orizzontale + verticale (caso più comune
+                                // nei simboli — "KWh", "F1", etc dentro un riquadro).
+                                // Se halign/valign salvati: rispetta esattamente.
                                 var content = (string?)e["content"] ?? "";
                                 if (string.IsNullOrEmpty(content)) continue;
                                 var h = (double?)e["height"] ?? 2.5;
                                 if (h <= 0) h = 2.5;
+
                                 var ft = new FormattedText(
                                     content,
                                     System.Globalization.CultureInfo.InvariantCulture,
@@ -397,13 +420,53 @@ namespace ImplantiAI
                                     h,
                                     System.Windows.Media.Brushes.White,
                                     1.0);
-                                // Il transform esterno ha ScaleY=-scale, quindi il testo
-                                // verrebbe disegnato a testa in giù. Compensiamo con un
-                                // sub-transform locale che riflette di nuovo (così appare dritto).
-                                dc.PushTransform(new ScaleTransform(1, -1,
-                                    (double)e["x"]!, (double)e["y"]!));
-                                dc.DrawText(ft, new System.Windows.Point(
-                                    (double)e["x"]!, (double)e["y"]! - h));  // y - h: baseline AutoCAD
+
+                                // Determina allineamento:
+                                // - DBText: halign (0=Left, 1=Center, 2=Right)
+                                //           valign (0=Base, 1=Bot, 2=Mid, 3=Top)
+                                // - MText:  attachment (1=TL 2=TC 3=TR 4=ML 5=MC 6=MR 7=BL 8=BC 9=BR)
+                                // Default per simboli: centrato MC.
+                                int halign = (int?)e["halign"] ?? -1;
+                                int valign = (int?)e["valign"] ?? -1;
+                                int attach = (int?)e["attachment"] ?? -1;
+
+                                bool hCenter = true, hRight = false;
+                                bool vCenter = true, vTop = false;
+                                if (halign >= 0)
+                                {
+                                    hCenter = halign == 1 || halign == 4;
+                                    hRight = halign == 2;
+                                }
+                                if (valign >= 0)
+                                {
+                                    vCenter = valign == 2;
+                                    vTop = valign == 3;
+                                }
+                                if (attach >= 0)
+                                {
+                                    hCenter = attach == 2 || attach == 5 || attach == 8;
+                                    hRight = attach == 3 || attach == 6 || attach == 9;
+                                    vTop = attach >= 1 && attach <= 3;
+                                    vCenter = attach >= 4 && attach <= 6;
+                                }
+
+                                ft.TextAlignment = hCenter ? System.Windows.TextAlignment.Center
+                                                : hRight  ? System.Windows.TextAlignment.Right
+                                                          : System.Windows.TextAlignment.Left;
+
+                                double ax = (double)e["x"]!, ay = (double)e["y"]!;
+                                // Offset Y per allineamento verticale (in unità AutoCAD,
+                                // dove Y cresce verso l'alto). FormattedText disegna
+                                // dall'alto verso il basso, quindi:
+                                //  - vTop:    il punto e' alto del testo  -> origin.y = ay
+                                //  - vCenter: il punto e' centro          -> origin.y = ay - h/2
+                                //  - vBottom: il punto e' baseline/bottom -> origin.y = ay - h
+                                double oy = vTop ? ay : vCenter ? ay - h * 0.5 : ay - h;
+
+                                // Riflettiamo Y attorno all'anchor per compensare il
+                                // ScaleY=-scale esterno (testo dritto, non specchiato).
+                                dc.PushTransform(new ScaleTransform(1, -1, ax, ay));
+                                dc.DrawText(ft, new System.Windows.Point(ax, oy));
                                 dc.Pop();
                             }
                         }

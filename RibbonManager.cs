@@ -134,6 +134,8 @@ namespace ImplantiAI
                             var nome = (string?)s["nome"] ?? "?";
                             // Preview 96x96 generata dalle geometrie
                             var preview = SymbolLibrary.RenderPreview(s, 96);
+                            if (preview == null)
+                                Logger.Log($"Ribbon button '{nome}': preview NULL (vedi RenderPreview log per dettagli)");
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),
