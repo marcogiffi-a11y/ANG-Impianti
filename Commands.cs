@@ -215,7 +215,7 @@ namespace ImplantiAI
                 await SupabaseClient.Insert("mary_oggetti_riconosciuti", payload);
                 ed.WriteMessage($"\n✅ Oggetto '{nomeRes.StringResult}' memorizzato.\n");
             }
-            catch (Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
         }
 
         // ========================================================
@@ -259,7 +259,7 @@ namespace ImplantiAI
                 foreach (var kv in conteggi)
                     ed.WriteMessage($"    {kv.Key}: {kv.Value} entità\n");
             }
-            catch (Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
+            catch (System.Exception ex) { ed.WriteMessage($"\n⚠ {ex.Message}\n"); }
         }
 
         // ========================================================
