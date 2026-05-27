@@ -89,7 +89,16 @@ namespace ImplantiAI
 
             // Estrai geometria
             var geometria = SymbolLibrary.EstraiGeometria(ids, db);
-            ed.WriteMessage($"\n📐 Geometria estratta: {(int)geometria["count"]!} entità, "
+            // Conta i tipi per diagnostica (capire perché qualcosa "manca")
+            var byType = new Dictionary<string, int>();
+            foreach (JObject e in (JArray)geometria["entities"]!)
+            {
+                var t = (string?)e["type"] ?? "?";
+                byType[t] = byType.GetValueOrDefault(t) + 1;
+            }
+            var breakdown = string.Join(", ", byType.Select(kv => $"{kv.Key}:{kv.Value}"));
+            Logger.Log($"AGGIUNGI_SIMBOLO: catturate {(int)geometria["count"]!} entità ({breakdown}), bbox={(double)geometria["bbox_w"]!:F2}×{(double)geometria["bbox_h"]!:F2}");
+            ed.WriteMessage($"\n📐 Geometria estratta: {(int)geometria["count"]!} entità ({breakdown}), "
                 + $"bbox {(double)geometria["bbox_w"]!:F1} × {(double)geometria["bbox_h"]!:F1}");
 
             // Chiedi nome

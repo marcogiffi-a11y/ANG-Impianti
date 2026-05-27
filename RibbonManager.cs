@@ -132,9 +132,8 @@ namespace ImplantiAI
                         foreach (var s in kv.Value)
                         {
                             var nome = (string?)s["nome"] ?? "?";
-                            // Preview 64x64 generata dalle geometrie: layout grande
-                            // (icona sopra, testo sotto) per leggibilità migliore.
-                            var preview = SymbolLibrary.RenderPreview(s, 64);
+                            // Preview 96x96 generata dalle geometrie
+                            var preview = SymbolLibrary.RenderPreview(s, 96);
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),

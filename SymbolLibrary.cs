@@ -281,30 +281,39 @@ namespace ImplantiAI
         //  Coordinate AutoCAD: Y verso l'alto. WPF: Y verso il basso. Quindi
         //  applichiamo ScaleY = -scale per riflettere verticalmente.
         // ================================================================
-        public static BitmapSource? RenderPreview(JObject simbolo, int size = 64)
+        public static BitmapSource? RenderPreview(JObject simbolo, int size = 96)
         {
             try
             {
                 var entities = simbolo["geometria"]?["entities"] as JArray;
-                if (entities == null || entities.Count == 0) return null;
+                if (entities == null || entities.Count == 0)
+                {
+                    Logger.Log("RenderPreview: nessuna entità");
+                    return null;
+                }
 
                 var bboxW = (double?)simbolo["geometria"]?["bbox_w"] ?? 1.0;
                 var bboxH = (double?)simbolo["geometria"]?["bbox_h"] ?? 1.0;
                 var maxDim = Math.Max(bboxW, bboxH);
                 if (maxDim <= 0.0001) maxDim = 1.0;
 
-                double padding = size * 0.08;          // 8% di margine intorno
+                double padding = size * 0.10;
                 double scale = (size - 2 * padding) / maxDim;
+
+                Logger.Log($"RenderPreview '{(string?)simbolo["nome"]}': size={size}, bbox=({bboxW:F2}×{bboxH:F2}), maxDim={maxDim:F2}, scale={scale:F4}, entities={entities.Count}");
 
                 var dv = new DrawingVisual();
                 using (var dc = dv.RenderOpen())
                 {
-                    // Pen più sottile: lo spessore visivo va calcolato in unità AutoCAD
-                    // (post-scaling): 1.2 px / scale = grandezza in unità del simbolo
-                    var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.2 / scale)
+                    // Pen spessore fisso a 2px nello spazio finale (canvas).
+                    // Dato che il transform applica scale, lo spessore in unità
+                    // del coordinate space del simbolo va diviso per scale.
+                    double penWidth = 2.0 / Math.Max(scale, 0.0001);
+                    var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, penWidth)
                     {
                         StartLineCap = PenLineCap.Round,
                         EndLineCap = PenLineCap.Round,
+                        LineJoin = PenLineJoin.Round,
                     };
                     pen.Freeze();
 
