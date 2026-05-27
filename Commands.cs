@@ -106,6 +106,37 @@ namespace ImplantiAI
             var nomeRes = ed.GetString(pNome);
             if (nomeRes.Status != PromptStatus.OK) return;
 
+            // Check duplicati: se esiste già un simbolo con stesso nome (case-insensitive),
+            // chiede di confermare la sovrascrittura. Sovrascrivere = eliminare il vecchio
+            // (incluso PNG su Storage) e creare il nuovo.
+            JObject? esistente = null;
+            try
+            {
+                var matches = await SymbolLibrary.CercaPerNome(nomeRes.StringResult);
+                esistente = matches.OfType<JObject>().FirstOrDefault(s =>
+                    string.Equals((string?)s["nome"], nomeRes.StringResult, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (System.Exception ex) { Logger.Log("Check duplicati: " + ex.Message); }
+
+            if (esistente != null)
+            {
+                var pOver = new PromptKeywordOptions(
+                    $"\n⚠ Simbolo '{nomeRes.StringResult}' già esistente. Sovrascrivere? [Si/No]")
+                { AllowNone = false };
+                pOver.Keywords.Add("Si");
+                pOver.Keywords.Add("No");
+                pOver.Keywords.Default = "No";
+                var ovRes = ed.GetKeywords(pOver);
+                if (ovRes.Status != PromptStatus.OK || ovRes.StringResult == "No")
+                {
+                    ed.WriteMessage("\n❌ Annullato. Usa un nome diverso o rilancia per sovrascrivere.\n");
+                    return;
+                }
+                ed.WriteMessage("\n🗑 Elimino il vecchio simbolo...");
+                await SymbolLibrary.EliminaSimbolo(esistente);
+                ed.WriteMessage(" OK");
+            }
+
             // Categoria (keyword)
             var pCat = new PromptKeywordOptions("\nCategoria: ");
             pCat.Keywords.Add("Prese"); pCat.Keywords.Add("Luci");
@@ -255,6 +286,122 @@ namespace ImplantiAI
                 Logger.Log("_RIBBON_INSERT_SYMBOL error: " + ex.Message);
                 ed.WriteMessage($"\n⚠ Errore inserimento: {ex.Message}\n");
             }
+        }
+
+        // ========================================================
+        //  ELIMINA SIMBOLO
+        //  Mostra la lista dei simboli che matchano un pattern,
+        //  chiede conferma, poi cancella record + PNG su Storage.
+        // ========================================================
+        [CommandMethod("ELIMINA_SIMBOLO")]
+        public async void EliminaSimboloCommand()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var ed = doc.Editor;
+
+            // 1) Pattern di ricerca (vuoto = mostra tutti)
+            var pName = new PromptStringOptions("\nNome (o parte) del simbolo da eliminare [INVIO=tutti]: ")
+            {
+                AllowSpaces = true,
+                AllowNone = true,
+            };
+            var nameRes = ed.GetString(pName);
+            if (nameRes.Status != PromptStatus.OK) return;
+            var pattern = nameRes.StringResult?.Trim() ?? "";
+
+            ed.WriteMessage("\n🔍 Ricerca simboli...");
+            JArray simboli;
+            try
+            {
+                simboli = string.IsNullOrEmpty(pattern)
+                    ? await SymbolLibrary.CaricaSimboli()
+                    : await SymbolLibrary.CercaPerNome(pattern);
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\n⚠ Errore di rete: " + ex.Message + "\n");
+                return;
+            }
+
+            if (simboli.Count == 0)
+            {
+                ed.WriteMessage($"\n📭 Nessun simbolo trovato per '{pattern}'.\n");
+                return;
+            }
+
+            // 2) Mostra l'elenco numerato
+            ed.WriteMessage($"\n📋 {simboli.Count} simbolo/i trovati:\n");
+            for (int i = 0; i < simboli.Count; i++)
+            {
+                var s = (JObject)simboli[i];
+                ed.WriteMessage($"  [{i + 1}] {(string?)s["nome"]} ({(string?)s["categoria"]})\n");
+            }
+            if (simboli.Count > 1)
+                ed.WriteMessage($"  [A] Elimina TUTTI ({simboli.Count})\n");
+
+            // 3) Scelta utente
+            var pChoice = new PromptStringOptions(simboli.Count > 1
+                ? "\nDigita il numero da eliminare (o 'A' per tutti, INVIO per annullare): "
+                : "\nDigita 1 per confermare (INVIO per annullare): ")
+            {
+                AllowSpaces = false,
+                AllowNone = true,
+            };
+            var choiceRes = ed.GetString(pChoice);
+            if (choiceRes.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(choiceRes.StringResult))
+            {
+                ed.WriteMessage("\n❌ Annullato.\n");
+                return;
+            }
+            var choice = choiceRes.StringResult.Trim().ToUpperInvariant();
+
+            // 4) Determina set di simboli da eliminare
+            var daEliminare = new List<JObject>();
+            if (choice == "A" && simboli.Count > 1)
+            {
+                foreach (JObject s in simboli) daEliminare.Add(s);
+            }
+            else if (int.TryParse(choice, out int idx) && idx >= 1 && idx <= simboli.Count)
+            {
+                daEliminare.Add((JObject)simboli[idx - 1]);
+            }
+            else
+            {
+                ed.WriteMessage("\n❌ Scelta non valida, annullato.\n");
+                return;
+            }
+
+            // 5) Conferma finale
+            var nomi = string.Join(", ", daEliminare.Select(s => "'" + (string?)s["nome"] + "'"));
+            var pConfirm = new PromptKeywordOptions($"\n⚠ Sto per eliminare {daEliminare.Count} simbolo/i ({nomi}). Confermi? [Si/No]")
+            {
+                AllowNone = false,
+            };
+            pConfirm.Keywords.Add("Si");
+            pConfirm.Keywords.Add("No");
+            pConfirm.Keywords.Default = "No";
+            var confirmRes = ed.GetKeywords(pConfirm);
+            if (confirmRes.Status != PromptStatus.OK || confirmRes.StringResult == "No")
+            {
+                ed.WriteMessage("\n❌ Annullato.\n");
+                return;
+            }
+
+            // 6) Esegui eliminazione
+            int ok = 0, fail = 0;
+            foreach (var s in daEliminare)
+            {
+                ed.WriteMessage($"\n🗑 Elimino '{(string?)s["nome"]}'...");
+                bool result = await SymbolLibrary.EliminaSimbolo(s);
+                if (result) { ok++; ed.WriteMessage(" OK"); }
+                else { fail++; ed.WriteMessage(" ⚠ fallito"); }
+            }
+            ed.WriteMessage($"\n✅ Eliminati {ok}/{daEliminare.Count} simboli." + (fail > 0 ? $" ({fail} errori, vedi log)" : "") + "\n");
+
+            // 7) Refresh ribbon
+            try { await RibbonManager.RefreshSymbolsPanel(); }
+            catch (System.Exception ex) { Logger.Log("RefreshSymbolsPanel after delete: " + ex.Message); }
         }
 
         // ========================================================

@@ -204,6 +204,46 @@ namespace ImplantiAI
             catch { return new JArray(); }
         }
 
+        /// <summary>Cerca simboli per nome (case-insensitive, supporta wildcard %).</summary>
+        public static async Task<JArray> CercaPerNome(string pattern)
+        {
+            try
+            {
+                // PostgREST: filtro ilike (case-insensitive LIKE)
+                var escaped = pattern.Replace("%", "*");
+                return await SupabaseClient.Select("mary_simboli", $"nome=ilike.*{Uri.EscapeDataString(escaped)}*");
+            }
+            catch { return new JArray(); }
+        }
+
+        /// <summary>
+        /// Elimina un simbolo per id. Cancella anche il PNG di preview da Storage se presente.
+        /// Ritorna true se la riga è stata eliminata, false in caso di errore.
+        /// </summary>
+        public static async Task<bool> EliminaSimbolo(JObject simbolo)
+        {
+            var id = (string?)simbolo["id"];
+            if (string.IsNullOrEmpty(id)) return false;
+
+            // 1) Prova a cancellare il PNG da Storage (se c'è un preview_url)
+            var previewUrl = (string?)simbolo["preview_url"];
+            if (!string.IsNullOrEmpty(previewUrl))
+            {
+                var path = SupabaseClient.ExtractStoragePath(previewUrl!, "symbol-previews");
+                if (path != null)
+                {
+                    try { await SupabaseClient.DeleteImage("symbol-previews", path); }
+                    catch (System.Exception ex) { Logger.Log("EliminaSimbolo storage: " + ex.Message); }
+                    // Se la cancellazione storage fallisce continuiamo comunque a togliere la
+                    // riga dal DB (il file orfano non è un problema funzionale)
+                }
+            }
+
+            // 2) Cancella la riga in mary_simboli
+            try { return await SupabaseClient.Delete("mary_simboli", $"id=eq.{id}"); }
+            catch (System.Exception ex) { Logger.Log("EliminaSimbolo db: " + ex.Message); return false; }
+        }
+
         /// <summary>Inserisce un simbolo a una coordinata data (replicando la geometria salvata).</summary>
         public static void InserisciSimbolo(JObject simbolo, Point3d pos, double rotazione = 0)
         {
@@ -421,10 +461,25 @@ namespace ImplantiAI
                 Logger.Log($"RenderPreview '{(string?)simbolo["nome"]}': size={size}, bbox=({bboxW:F2}×{bboxH:F2}), maxDim={maxDim:F2}, scale={scale:F4}, entities={entities.Count}");
 
                 var dv = new DrawingVisual();
+                // Antialiasing/edge quality alti
+                System.Windows.Media.RenderOptions.SetEdgeMode(dv, EdgeMode.Unspecified);
+                System.Windows.Media.RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.HighQuality);
+
                 using (var dc = dv.RenderOpen())
                 {
-                    // Pen sottile per leggibilità su simboli con molti dettagli.
-                    // 1.0px nel canvas finale: nelle unità AutoCAD = 1.0/scale.
+                    // Sfondo scuro stile AutoCAD per coerenza visiva (RGB ~33,33,33)
+                    // con un bordo sottile per delimitare l'area dell'icona.
+                    var bgBrush = new SolidColorBrush(Color.FromRgb(0x21, 0x21, 0x21));
+                    bgBrush.Freeze();
+                    var borderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+                    borderBrush.Freeze();
+                    var borderPen = new System.Windows.Media.Pen(borderBrush, 1);
+                    borderPen.Freeze();
+                    dc.DrawRectangle(bgBrush, borderPen,
+                        new System.Windows.Rect(0.5, 0.5, size - 1, size - 1));
+
+                    // Pen sottile bianco per le geometrie. 1.0 px nel canvas finale:
+                    // nelle unità AutoCAD = 1.0/scale.
                     double penWidth = 1.0 / Math.Max(scale, 0.0001);
                     var pen = new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, penWidth)
                     {

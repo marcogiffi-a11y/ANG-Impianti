@@ -156,12 +156,42 @@ namespace ImplantiAI
         {
             try
             {
-                // Usiamo un HttpClient nuovo: l'URL e' pubblico, niente Authorization header
-                // (potrebbe addirittura interferire). Timeout breve.
                 using var c = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
                 return await c.GetByteArrayAsync(url);
             }
             catch (System.Exception ex) { Logger.Log("DownloadBytes " + url + ": " + ex.Message); return null; }
+        }
+
+        /// <summary>Cancella un file da Supabase Storage. Path: '{categoria}/{nome}-{uuid}.png'.</summary>
+        public static async Task<bool> DeleteImage(string bucket, string path)
+        {
+            try
+            {
+                var url = $"{SUPABASE_URL}/storage/v1/object/{bucket}/{Uri.EscapeUriString(path)}";
+                var req = new HttpRequestMessage(HttpMethod.Delete, url);
+                var resp = await Http.SendAsync(req);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync();
+                    Logger.Log($"DeleteImage failed: {resp.StatusCode} {body}");
+                    return false;
+                }
+                return true;
+            }
+            catch (System.Exception ex) { Logger.Log("DeleteImage: " + ex.Message); return false; }
+        }
+
+        /// <summary>Estrae il path '{bucket}/{...}' da un URL pubblico Storage.</summary>
+        public static string? ExtractStoragePath(string publicUrl, string bucket)
+        {
+            try
+            {
+                var marker = $"/storage/v1/object/public/{bucket}/";
+                var idx = publicUrl.IndexOf(marker);
+                if (idx < 0) return null;
+                return Uri.UnescapeDataString(publicUrl.Substring(idx + marker.Length));
+            }
+            catch { return null; }
         }
     }
 }

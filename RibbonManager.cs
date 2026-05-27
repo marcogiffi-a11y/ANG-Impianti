@@ -32,7 +32,8 @@ namespace ImplantiAI
             tab.Panels.Add(MkPanel("Libreria Simboli",
                 MkBig("Aggiungi\nSimbolo",    "AGGIUNGI_SIMBOLO"),
                 MkBig("Mostra\nLibreria",     "LIBRERIA_SIMBOLI"),
-                MkBig("Inserisci\nda Libreria", "INSERISCI_DA_LIBRERIA")));
+                MkBig("Inserisci\nda Libreria", "INSERISCI_DA_LIBRERIA"),
+                MkBig("Elimina\nSimbolo",     "ELIMINA_SIMBOLO")));
 
             // ============ MEMORIZZAZIONE ============
             tab.Panels.Add(MkPanel("Memoria Mary",
