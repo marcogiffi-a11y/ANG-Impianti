@@ -96,7 +96,7 @@ namespace ImplantiAI
                 await SupabaseClient.Insert("mary_simboli", payload);
                 return true;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 Logger.Log("SalvaSimbolo: " + ex.Message);
                 return false;
