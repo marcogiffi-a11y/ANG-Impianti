@@ -140,8 +140,13 @@ namespace ImplantiAI
                 catch (Exception uiEx) { Logger.Log("LoadDynamicSymbols UI: " + uiEx.Message); }
             };
 
-            // Priorità: dispatcher del panel (sempre disponibile, è WPF) → Application.Current → diretto
-            var dispatcher = panel?.Dispatcher ?? System.Windows.Application.Current?.Dispatcher;
+            // Priorità: dispatcher del RibbonControl (è WPF, sicuro) → Application.Current → diretto
+            System.Windows.Threading.Dispatcher? dispatcher = null;
+            try { dispatcher = ComponentManager.Ribbon?.Dispatcher; } catch { }
+            if (dispatcher == null)
+            {
+                try { dispatcher = System.Windows.Application.Current?.Dispatcher; } catch { }
+            }
             if (dispatcher != null)
             {
                 if (dispatcher.CheckAccess()) update();
