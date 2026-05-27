@@ -124,13 +124,42 @@ namespace ImplantiAI
                 ? "ANG_" + layerRes.StringResult.ToUpper().Replace(" ", "_")
                 : "ANG_GENERICO";
 
-            // Salva
+            // Genera thumbnail PNG via AutoCAD (WYSIWYG) e carica su Supabase Storage.
+            // Se fallisce, il salvataggio prosegue senza preview_url e il ribbon
+            // userà il fallback vector render.
+            string? previewUrl = null;
+            try
+            {
+                ed.WriteMessage("\n🖼  Generazione anteprima PNG...");
+                var pngBytes = SymbolLibrary.GenerateThumbnail(ids, db);
+                if (pngBytes != null)
+                {
+                    // Path: '{categoria}/{nome-sanitized}-{8charUuid}.png'
+                    var safe = System.Text.RegularExpressions.Regex.Replace(
+                        nomeRes.StringResult.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+                    if (string.IsNullOrEmpty(safe)) safe = "symbol";
+                    var path = $"{catRes.StringResult}/{safe}-{Guid.NewGuid().ToString("N").Substring(0, 8)}.png";
+                    previewUrl = await SupabaseClient.UploadImage(pngBytes, "symbol-previews", path);
+                    if (previewUrl != null) ed.WriteMessage(" OK");
+                    else ed.WriteMessage(" ⚠ upload fallito (vedi log)");
+                }
+                else
+                {
+                    ed.WriteMessage(" ⚠ PreviewIcon non disponibile (uso vector render)");
+                }
+            }
+            catch (System.Exception thEx)
+            {
+                Logger.Log("Thumbnail/Upload: " + thEx.Message);
+                ed.WriteMessage(" ⚠ errore thumbnail");
+            }
+
+            // Salva metadata + geometria + preview_url
             ed.WriteMessage("\n💾 Salvataggio simbolo su Supabase...");
-            bool ok = await SymbolLibrary.SalvaSimbolo(nomeRes.StringResult, catRes.StringResult, geometria, layerNome);
+            bool ok = await SymbolLibrary.SalvaSimbolo(nomeRes.StringResult, catRes.StringResult, geometria, layerNome, previewUrl);
             if (ok)
             {
                 ed.WriteMessage($"\n✅ Simbolo '{nomeRes.StringResult}' salvato in libreria ({catRes.StringResult}).\n");
-                // Ricarica il panel ribbon così il bottone appare subito, senza riavviare AutoCAD
                 try { await RibbonManager.RefreshSymbolsPanel(); }
                 catch (System.Exception rEx) { Logger.Log("RefreshSymbolsPanel: " + rEx.Message); }
             }

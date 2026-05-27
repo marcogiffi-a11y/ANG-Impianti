@@ -5,6 +5,9 @@ using Autodesk.AutoCAD.Geometry;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -170,7 +173,7 @@ namespace ImplantiAI
         }
 
         /// <summary>Salva un nuovo simbolo su Supabase.</summary>
-        public static async Task<bool> SalvaSimbolo(string nome, string categoria, JObject geometria, string layerNome)
+        public static async Task<bool> SalvaSimbolo(string nome, string categoria, JObject geometria, string layerNome, string? previewUrl = null)
         {
             try
             {
@@ -183,6 +186,7 @@ namespace ImplantiAI
                     ["bbox_h_cm"] = geometria["bbox_h"]?.Value<double>() ?? 0,
                     ["num_entities"] = geometria["count"]?.Value<int>() ?? 0,
                 };
+                if (!string.IsNullOrEmpty(previewUrl)) payload["preview_url"] = previewUrl;
                 await SupabaseClient.Insert("mary_simboli", payload);
                 return true;
             }
@@ -297,7 +301,87 @@ namespace ImplantiAI
         }
 
         // ================================================================
-        //  RENDER PREVIEW — converte la geometria salvata in una BitmapSource
+        //  GENERATE THUMBNAIL — usa l'API nativa di AutoCAD per generare
+        //  un PNG WYSIWYG del simbolo. Crea un BlockTableRecord temporaneo,
+        //  clona le entità dentro, estrae PreviewIcon (System.Drawing.Bitmap)
+        //  e cancella il blocco. Il risultato è IDENTICO a quello che vedi
+        //  nel disegno.
+        //
+        //  Ritorna i bytes PNG, oppure null se l'API PreviewIcon ritorna
+        //  null (puo' succedere su blocchi appena creati: in quel caso il
+        //  chiamante usa fallback al vector render).
+        // ================================================================
+        public static byte[]? GenerateThumbnail(IEnumerable<ObjectId> ids, Database db)
+        {
+            string blockName = "_ANG_PREV_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            Bitmap? icon = null;
+            ObjectId blockId = ObjectId.Null;
+
+            try
+            {
+                // Step 1: crea il blocco temporaneo + clona le entità
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
+                    var btr = new BlockTableRecord { Name = blockName };
+                    blockId = bt.Add(btr);
+                    tr.AddNewlyCreatedDBObject(btr, true);
+
+                    var idColl = new ObjectIdCollection(ids.ToArray());
+                    var mapping = new IdMapping();
+                    db.DeepCloneObjects(idColl, blockId, mapping, false);
+
+                    tr.Commit();
+                }
+
+                // Step 2: estrai PreviewIcon. AutoCAD popola la preview
+                // automaticamente alla creazione del BlockTableRecord.
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForRead);
+                    try { icon = btr.PreviewIcon; }
+                    catch (System.Exception ex) { Logger.Log("GenerateThumbnail PreviewIcon: " + ex.Message); }
+                    tr.Commit();
+                }
+            }
+            finally
+            {
+                // Step 3: cleanup — cancella il blocco temporaneo
+                if (blockId != ObjectId.Null)
+                {
+                    try
+                    {
+                        using var tr = db.TransactionManager.StartTransaction();
+                        var btr = (BlockTableRecord)tr.GetObject(blockId, OpenMode.ForWrite);
+                        btr.Erase();
+                        tr.Commit();
+                    }
+                    catch (System.Exception ex) { Logger.Log("GenerateThumbnail cleanup: " + ex.Message); }
+                }
+            }
+
+            if (icon == null)
+            {
+                Logger.Log("GenerateThumbnail: PreviewIcon null, fallback al vector render");
+                return null;
+            }
+
+            try
+            {
+                using var ms = new MemoryStream();
+                icon.Save(ms, ImageFormat.Png);
+                var bytes = ms.ToArray();
+                Logger.Log($"GenerateThumbnail: PNG generato {bytes.Length} bytes ({icon.Width}×{icon.Height})");
+                return bytes;
+            }
+            catch (System.Exception ex)
+            {
+                Logger.Log("GenerateThumbnail PNG encode: " + ex.Message);
+                return null;
+            }
+        }
+
+
         //  WPF da usare come icona nel bottone ribbon. Dimensione tipica 32x32
         //  per RibbonItemSize.Standard; ridimensionata automaticamente al bbox.
         //

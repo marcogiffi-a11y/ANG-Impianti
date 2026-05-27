@@ -90,11 +90,44 @@ namespace ImplantiAI
             try { simboli = await SymbolLibrary.CaricaSimboli(); }
             catch (Exception ex) { simboli = new JArray(); errore = ex.Message; Logger.Log("LoadDynamicSymbols: " + ex.Message); }
 
-            // L'aggiornamento del ribbon DEVE girare sul UI thread.
-            // Nei plugin AutoCAD `System.Windows.Application.Current` è null
-            // (AutoCAD non è un'applicazione WPF standard), quindi usiamo
-            // il Dispatcher del panel stesso (è un DispatcherObject WPF) e
-            // facciamo fallback a chiamata diretta solo come ultima spiaggia.
+            // Pre-fetch preview_url in parallelo (off-UI). Costruiamo una mappa
+            // (simbolo_id -> BitmapSource) e il render dei bottoni la consulta.
+            // Per simboli senza preview_url, fallback al vector RenderPreview.
+            var previews = new Dictionary<string, BitmapSource?>();
+            if (errore == null && simboli.Count > 0)
+            {
+                var fetchTasks = new List<Task>();
+                foreach (JObject s in simboli)
+                {
+                    var id = (string?)s["id"] ?? Guid.NewGuid().ToString();
+                    var url = (string?)s["preview_url"];
+                    if (string.IsNullOrEmpty(url)) { previews[id] = null; continue; }
+                    fetchTasks.Add(Task.Run(async () =>
+                    {
+                        var bytes = await SupabaseClient.DownloadBytes(url!);
+                        BitmapSource? bs = null;
+                        if (bytes != null)
+                        {
+                            try
+                            {
+                                using var ms = new System.IO.MemoryStream(bytes);
+                                var bi = new BitmapImage();
+                                bi.BeginInit();
+                                bi.CacheOption = BitmapCacheOption.OnLoad;
+                                bi.StreamSource = ms;
+                                bi.EndInit();
+                                bi.Freeze();
+                                bs = bi;
+                            }
+                            catch (Exception ex) { Logger.Log("Ribbon preview decode: " + ex.Message); }
+                        }
+                        lock (previews) previews[id] = bs;
+                    }));
+                }
+                try { await Task.WhenAll(fetchTasks); }
+                catch (Exception wEx) { Logger.Log("Ribbon preview fetch: " + wEx.Message); }
+            }
+
             Action update = () =>
             {
                 try
@@ -132,10 +165,15 @@ namespace ImplantiAI
                         foreach (var s in kv.Value)
                         {
                             var nome = (string?)s["nome"] ?? "?";
-                            // Preview 96x96 generata dalle geometrie
-                            var preview = SymbolLibrary.RenderPreview(s, 96);
+                            var id = (string?)s["id"] ?? "";
+                            // Priorità: PNG WYSIWYG da Storage > vector render
+                            BitmapSource? preview = null;
+                            if (!string.IsNullOrEmpty(id) && previews.TryGetValue(id, out var cached))
+                                preview = cached;
                             if (preview == null)
-                                Logger.Log($"Ribbon button '{nome}': preview NULL (vedi RenderPreview log per dettagli)");
+                                preview = SymbolLibrary.RenderPreview(s, 96);
+                            if (preview == null)
+                                Logger.Log($"Ribbon button '{nome}': preview NULL (no preview_url, no vector)");
                             panel.Source.Items.Add(new RibbonButton
                             {
                                 Text = TruncateLabel(nome),

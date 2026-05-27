@@ -118,5 +118,50 @@ namespace ImplantiAI
             var resp = await Http.SendAsync(req);
             return resp.IsSuccessStatusCode;
         }
+
+        // ============================================================
+        //  STORAGE API (bucket public 'symbol-previews')
+        // ============================================================
+
+        /// <summary>
+        /// Carica un PNG su Supabase Storage e ritorna l'URL pubblico.
+        /// Path tipico: '{categoria}/{nome}-{uuid}.png'. Se path esiste già,
+        /// usa l'header x-upsert per sovrascrivere.
+        /// </summary>
+        public static async Task<string?> UploadImage(byte[] png, string bucket, string path)
+        {
+            try
+            {
+                var url = $"{SUPABASE_URL}/storage/v1/object/{bucket}/{Uri.EscapeUriString(path)}";
+                var req = new HttpRequestMessage(HttpMethod.Post, url);
+                req.Headers.Add("x-upsert", "true");
+                req.Content = new ByteArrayContent(png);
+                req.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
+                var resp = await Http.SendAsync(req);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var body = await resp.Content.ReadAsStringAsync();
+                    Logger.Log($"UploadImage failed: {resp.StatusCode} {body}");
+                    return null;
+                }
+                var publicUrl = $"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{Uri.EscapeUriString(path)}";
+                Logger.Log("UploadImage: " + publicUrl);
+                return publicUrl;
+            }
+            catch (System.Exception ex) { Logger.Log("UploadImage: " + ex.Message); return null; }
+        }
+
+        /// <summary>Scarica bytes da un URL pubblico (no auth, Storage public bucket).</summary>
+        public static async Task<byte[]?> DownloadBytes(string url)
+        {
+            try
+            {
+                // Usiamo un HttpClient nuovo: l'URL e' pubblico, niente Authorization header
+                // (potrebbe addirittura interferire). Timeout breve.
+                using var c = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                return await c.GetByteArrayAsync(url);
+            }
+            catch (System.Exception ex) { Logger.Log("DownloadBytes " + url + ": " + ex.Message); return null; }
+        }
     }
 }
